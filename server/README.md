@@ -13,7 +13,7 @@ Responsabilidades:
 ```bash
 python -m venv .venv
 source .venv/bin/activate      # Windows: .venv\Scripts\activate
-pip install -r requirements.txt
+pip install -r requirements.txt   # ou requirements-dev.txt para rodar os testes
 cp .env.example .env           # preencha ANTHROPIC_API_KEY
 uvicorn app.main:app --reload
 ```
@@ -70,3 +70,55 @@ rota precisa mudar.
 
 Em testes, sobrescreva com `app.dependency_overrides[get_pendencias_provider]`;
 o mesmo vale para `get_claude_client` e `get_settings`.
+
+## Provedores de LLM
+
+A interpretação de comandos fica atrás da interface `LLMProvider`
+(`app/core/llm/`), com um método único:
+
+```python
+async def interpretar_comando(self, texto: str) -> ComandoInterpretado
+```
+
+Todos os provedores compartilham a **mesma** personalidade (`SYSTEM_PROMPT`) e o
+mesmo schema de saída (`acao`, `parametros`, `resposta_falada`) — trocar de LLM
+não muda quem o Shogun é.
+
+| `SHOGUN_LLM_PROVIDER` | Classe | Saída estruturada |
+| --- | --- | --- |
+| `claude` | `ClaudeProvider` | `output_config.format` (json_schema nativo) |
+| `deepseek` | `DeepSeekProvider` | JSON mode + schema descrito no prompt |
+| `openai_mini` | `OpenAIMiniProvider` | `response_format` json_schema `strict` |
+
+### Adicionando um provedor
+
+1. Crie a classe implementando `LLMProvider` (construtor recebe `Settings`).
+2. Acrescente uma entrada em `PROVIDERS` (`app/core/llm/registry.py`).
+
+Nada mais muda — nem a factory, nem as rotas.
+
+### Fallback automático
+
+`SHOGUN_LLM_FALLBACK_PROVIDER` envolve o principal em `FallbackLLMProvider`.
+Se o principal levantar `LLMIndisponivelError` (timeout, rate limit, erro de API,
+credencial ausente, resposta fora do formato), o reserva assume e o motivo da
+troca vai para o log. Se ambos falharem, o erro propagado cita os dois motivos.
+Vazio = sem fallback, erro propagado direto.
+
+```bash
+SHOGUN_LLM_PROVIDER=claude
+SHOGUN_LLM_FALLBACK_PROVIDER=deepseek
+```
+
+Trocar de provedor ou ligar o fallback é só variável de ambiente — `api/comando.py`
+recebe o provedor por `Depends(get_llm_provider)` e não conhece nenhuma implementação.
+
+## Testes
+
+```bash
+pip install -r requirements-dev.txt
+pytest            # a partir de server/
+```
+
+Nenhum teste chama API real: os provedores têm o cliente HTTP mockado e a rota usa
+`app.dependency_overrides`.

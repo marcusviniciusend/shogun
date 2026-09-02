@@ -3,5 +3,6 @@ uvicorn[standard]>=0.30
 pydantic>=2.8
 pydantic-settings>=2.4
 anthropic>=0.40
+openai>=1.60
 python-dotenv>=1.0
 websockets>=13.0

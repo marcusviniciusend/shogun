@@ -4,13 +4,13 @@ import logging
 
 from fastapi import APIRouter, Depends, HTTPException, status
 
-from app.core.claude import (
-    ClaudeClient,
-    ClaudeIndisponivelError,
-    Intencao,
-    get_claude_client,
-)
 from app.core.contracts import AgentAction, CommandRequest, CommandResponse
+from app.core.llm import (
+    ComandoInterpretado,
+    LLMIndisponivelError,
+    LLMProvider,
+    get_llm_provider,
+)
 from app.core.pendencias import PendenciasProvider, get_pendencias_provider
 from app.core.security import require_auth
 
@@ -20,7 +20,7 @@ router = APIRouter(tags=["comando"], dependencies=[Depends(require_auth)])
 
 
 async def _consultar_pendencias(
-    intencao: Intencao, provider: PendenciasProvider
+    intencao: ComandoInterpretado, provider: PendenciasProvider
 ) -> tuple[str, AgentAction]:
     """Executa a ação ``consultar_pendencias`` usando o provedor injetado."""
     limite = intencao.parametros.get("limite", 10)
@@ -64,7 +64,7 @@ async def _consultar_pendencias(
     )
 
 
-def _abrir_app(intencao: Intencao) -> tuple[str, AgentAction]:
+def _abrir_app(intencao: ComandoInterpretado) -> tuple[str, AgentAction]:
     """Placeholder da ação ``abrir_app``.
 
     TODO: o cliente (desktop/mobile) é quem tem acesso ao sistema operacional.
@@ -84,7 +84,7 @@ def _abrir_app(intencao: Intencao) -> tuple[str, AgentAction]:
 @router.post("/comando", response_model=CommandResponse)
 async def processar_comando(
     comando: CommandRequest,
-    claude: ClaudeClient = Depends(get_claude_client),
+    llm: LLMProvider = Depends(get_llm_provider),
     pendencias: PendenciasProvider = Depends(get_pendencias_provider),
 ) -> CommandResponse:
     """Recebe o texto já transcrito, interpreta a intenção e executa a ação."""
@@ -96,9 +96,9 @@ async def processar_comando(
         )
 
     try:
-        intencao = await claude.interpretar(texto)
-    except ClaudeIndisponivelError as exc:
-        logger.error("Claude indisponível: %s", exc)
+        intencao = await llm.interpretar_comando(texto)
+    except LLMIndisponivelError as exc:
+        logger.error("LLM indisponível: %s", exc)
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail=f"Não consegui pensar agora: {exc}",

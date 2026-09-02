@@ -7,6 +7,7 @@ from fastapi import FastAPI
 
 from app.api import comando_router
 from app.core.config import settings
+from app.core.llm import get_llm_provider
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -14,8 +15,12 @@ logger = logging.getLogger(__name__)
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
-    if not settings.anthropic_api_key:
-        logger.warning("ANTHROPIC_API_KEY nao configurada - /comando respondera 503.")
+    provider = get_llm_provider()
+    logger.info("Provedor de LLM ativo: %s", provider.nome)
+    if not provider.configurado:
+        logger.warning(
+            "Nenhuma credencial de LLM configurada - /comando respondera 503."
+        )
     if not settings.shogun_auth_token:
         logger.warning("SHOGUN_AUTH_TOKEN vazio - servidor SEM autenticacao.")
     yield
