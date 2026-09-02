@@ -1,6 +1,6 @@
 # Shogun
 
-**Um comandante digital** — assistente pessoal de voz no estilo JARVIS, para Desktop e Mobile.
+**Um comandante digital** — assistente pessoal de voz, para Desktop e Mobile.
 
 Shogun escuta comandos de voz, entende a intenção com a API da Claude (Anthropic) e
 executa ações: consultar informações, controlar o computador, orquestrar agentes
