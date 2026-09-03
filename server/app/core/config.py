@@ -11,8 +11,10 @@ class Settings(BaseSettings):
     shogun_llm_provider: str = "claude"
     # Provedor acionado quando o principal falha. Vazio = sem fallback.
     shogun_llm_fallback_provider: str = ""
-    # Teto de tokens da resposta do modelo por comando.
-    shogun_max_tokens: int = 2048
+    # Teto de tokens da resposta do modelo por comando. Nos modelos com thinking
+    # adaptativo (Opus 5) os tokens de raciocinio saem deste mesmo teto, entao a
+    # folga aqui evita truncar uma resposta que, em si, e curta.
+    shogun_max_tokens: int = 4096
     # Timeout (segundos) das chamadas ao LLM — curto o bastante para o fallback
     # entrar em ação antes de o cliente desistir.
     shogun_llm_timeout: float = 30.0

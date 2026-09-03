@@ -42,7 +42,11 @@ class ClaudeProvider:
                 system=SYSTEM_PROMPT,
                 messages=[{"role": "user", "content": texto}],
                 output_config={
-                    "format": {"type": "json_schema", "schema": ESQUEMA_COMANDO}
+                    # effort baixo: classificar a intencao em 3 acoes e tarefa
+                    # simples, e o thinking adaptativo (ligado por padrao no Opus 5)
+                    # consome tokens do mesmo teto de max_tokens.
+                    "effort": "low",
+                    "format": {"type": "json_schema", "schema": ESQUEMA_COMANDO},
                 },
             )
         except anthropic.AnthropicError as exc:  # rede, timeout, rate limit, 4xx/5xx
