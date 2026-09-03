@@ -4,6 +4,7 @@ import json
 from types import SimpleNamespace
 
 import anthropic
+import httpx
 
 import pytest
 from openai import APITimeoutError, RateLimitError
@@ -19,6 +20,7 @@ from app.core.llm import (
     FallbackLLMProvider,
     LLMIndisponivelError,
     LLMProvider,
+    OllamaProvider,
     OpenAIMiniProvider,
     ProviderDesconhecidoError,
     criar_provider,
@@ -301,11 +303,193 @@ async def test_claude_sem_bloco_de_texto_vira_erro_do_dominio(config):
         await provider.interpretar_comando("oi")
 
 
+# --- Ollama ---------------------------------------------------------------
+
+# Os testes usam httpx.MockTransport: o httpx real roda por baixo, entao
+# status HTTP, raise_for_status e ConnectError se comportam como em producao.
+
+
+def _ollama_ok(conteudo=RESPOSTA_JSON, done_reason="stop"):
+    """Handler que devolve uma resposta bem formada do /api/chat."""
+    capturado = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        capturado["url"] = str(request.url)
+        capturado["body"] = json.loads(request.content)
+        return httpx.Response(
+            200,
+            json={
+                "model": "hermes3:8b",
+                "message": {"role": "assistant", "content": conteudo},
+                "done": True,
+                "done_reason": done_reason,
+            },
+        )
+
+    return httpx.MockTransport(handler), capturado
+
+
+def _ollama_erro(exc: Exception):
+    def handler(request: httpx.Request) -> httpx.Response:
+        raise exc
+
+    return httpx.MockTransport(handler)
+
+
+def _ollama_status(codigo: int, corpo: str):
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(codigo, text=corpo)
+
+    return httpx.MockTransport(handler)
+
+
+async def test_ollama_usa_endpoint_nativo_com_schema_completo(config):
+    transporte, capturado = _ollama_ok()
+    provider = OllamaProvider(config, transport=transporte)
+    assert provider.nome == "ollama"
+
+    comando = await provider.interpretar_comando("abre o spotify")
+
+    assert capturado["url"] == "http://localhost:11434/api/chat"
+    corpo = capturado["body"]
+    assert corpo["model"] == "hermes3:8b"
+    assert corpo["stream"] is False
+    # Schema completo, nao apenas {"format": "json"}: e isso que restringe a
+    # decodificacao por gramatica em vez de so garantir JSON sintatico.
+    assert corpo["format"] == ESQUEMA_COMANDO
+    assert corpo["options"]["num_predict"] == config.shogun_max_tokens
+    assert corpo["options"]["temperature"] == 0
+    # A personalidade e a mesma dos outros provedores.
+    sistema = corpo["messages"][0]["content"]
+    assert sistema.startswith(SYSTEM_PROMPT)
+    assert "resposta_falada" in sistema
+    assert corpo["messages"][1] == {"role": "user", "content": "abre o spotify"}
+    assert comando.acao == "abrir_app"
+    assert comando.parametros == {"app": "Spotify"}
+
+
+async def test_ollama_respeita_base_url_configurada():
+    config = Settings(
+        _env_file=None,
+        ollama_base_url="http://192.168.0.10:11434/",  # barra final de proposito
+        ollama_model="hermes3:70b",
+    )
+    transporte, capturado = _ollama_ok()
+
+    await OllamaProvider(config, transport=transporte).interpretar_comando("oi")
+
+    # A barra final nao pode virar // no caminho.
+    assert capturado["url"] == "http://192.168.0.10:11434/api/chat"
+    assert capturado["body"]["model"] == "hermes3:70b"
+
+
+def test_ollama_nao_exige_credencial(config):
+    """Modelo local nao tem chave: `configurado` nao pode depender de credencial."""
+    assert OllamaProvider(config).configurado
+
+
+async def test_ollama_fora_do_ar_vira_erro_do_dominio(config):
+    transporte = _ollama_erro(httpx.ConnectError("connection refused"))
+    provider = OllamaProvider(config, transport=transporte)
+
+    with pytest.raises(LLMIndisponivelError, match="rodando"):
+        await provider.interpretar_comando("oi")
+
+
+async def test_ollama_timeout_vira_erro_do_dominio(config):
+    transporte = _ollama_erro(httpx.ConnectTimeout("estourou"))
+    provider = OllamaProvider(config, transport=transporte)
+
+    with pytest.raises(LLMIndisponivelError, match="excedeu"):
+        await provider.interpretar_comando("oi")
+
+
+async def test_ollama_modelo_nao_baixado_vira_erro_do_dominio(config):
+    """404 do Ollama normalmente e `ollama pull` que faltou."""
+    provider = OllamaProvider(
+        config, transport=_ollama_status(404, 'model "hermes3:8b" not found')
+    )
+    with pytest.raises(LLMIndisponivelError, match="404"):
+        await provider.interpretar_comando("oi")
+
+
+async def test_ollama_json_malformado_vira_erro_do_dominio(config):
+    transporte, _ = _ollama_ok(conteudo="quase json, mas nao")
+    provider = OllamaProvider(config, transport=transporte)
+
+    with pytest.raises(LLMIndisponivelError, match="JSON"):
+        await provider.interpretar_comando("oi")
+
+
+async def test_ollama_json_fora_do_schema_vira_erro_do_dominio(config):
+    """Modelo pequeno pode devolver JSON valido com acao inexistente."""
+    transporte, _ = _ollama_ok(conteudo=json.dumps({"acao": "cozinhar"}))
+    provider = OllamaProvider(config, transport=transporte)
+
+    with pytest.raises(LLMIndisponivelError, match="formato"):
+        await provider.interpretar_comando("oi")
+
+
+async def test_ollama_resposta_truncada_vira_erro_do_dominio(config):
+    transporte, _ = _ollama_ok(done_reason="length")
+    provider = OllamaProvider(config, transport=transporte)
+
+    with pytest.raises(LLMIndisponivelError, match="SHOGUN_MAX_TOKENS"):
+        await provider.interpretar_comando("oi")
+
+
+async def test_ollama_sem_conteudo_vira_erro_do_dominio(config):
+    transporte, _ = _ollama_ok(conteudo="")
+    provider = OllamaProvider(config, transport=transporte)
+
+    with pytest.raises(LLMIndisponivelError, match="sem conteudo"):
+        await provider.interpretar_comando("oi")
+
+
+# --- Ollama + fallback (o cenario de uso local) ---------------------------
+
+
+async def test_ollama_fora_do_ar_ativa_o_fallback(config, caplog):
+    """Ollama desligado nao pode derrubar o comando — a nuvem assume."""
+    local = OllamaProvider(config, transport=_ollama_erro(httpx.ConnectError("recusou")))
+    nuvem = ProviderDeTeste("claude")
+
+    comando = await FallbackLLMProvider(local, nuvem).interpretar_comando("oi")
+
+    assert comando.resposta_falada == "resposta de claude"
+    assert nuvem.chamado
+    assert "ollama" in caplog.text.lower()
+
+
+async def test_ollama_com_json_malformado_ativa_o_fallback(config):
+    """O caso que motiva o fallback: modelo 8B devolvendo JSON inaproveitavel."""
+    transporte, _ = _ollama_ok(conteudo="{acao: conversar,,}")
+    local = OllamaProvider(config, transport=transporte)
+    nuvem = ProviderDeTeste("deepseek")
+
+    comando = await FallbackLLMProvider(local, nuvem).interpretar_comando("oi")
+
+    assert comando.resposta_falada == "resposta de deepseek"
+    assert nuvem.chamado
+
+
+async def test_ollama_ok_nao_gasta_api_paga(config):
+    """Caminho normal do uso local: o provedor pago nem e tocado."""
+    transporte, _ = _ollama_ok()
+    local = OllamaProvider(config, transport=transporte)
+    nuvem = ProviderDeTeste("claude")
+
+    comando = await FallbackLLMProvider(local, nuvem).interpretar_comando("oi")
+
+    assert comando.acao == "abrir_app"
+    assert not nuvem.chamado
+
+
 # --- registro e factory --------------------------------------------------
 
 
-def test_registro_expoe_os_tres_provedores():
-    assert set(PROVIDERS) == {"claude", "deepseek", "openai_mini"}
+def test_registro_expoe_os_quatro_provedores():
+    assert set(PROVIDERS) == {"claude", "deepseek", "openai_mini", "ollama"}
     assert PROVIDERS["claude"] is ClaudeProvider
 
 
