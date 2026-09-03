@@ -1,52 +1,28 @@
-"""Interface (temporária) do provedor de pendências.
+"""Injeção de dependência do provedor de pendências.
 
-⚠️ TEMPORÁRIO — este módulo existe para o servidor não ficar bloqueado enquanto o
-módulo de domínio do ``agente-contratos`` não existe fisicamente. No merge:
-
-* substituir ``Pendencia`` e ``PendenciasProvider`` pelos tipos oficiais do
-  módulo de domínio (provavelmente em ``shared/python`` ou ``server/app/domain``);
-* manter ``get_pendencias_provider`` como ponto de injeção do FastAPI, apenas
-  trocando o que ele devolve.
-
-A assinatura assumida é ``async listar_pendencias(limite: int) -> Sequence[Pendencia]``.
-Se a interface definitiva divergir, o ajuste fica restrito a este arquivo e ao
-adaptador em ``app/api/comando.py``.
+O contrato vive em ``app.domain`` (módulo do agente-contratos); aqui fica apenas
+a ligação com o FastAPI: qual implementação a aplicação usa por padrão e o ponto
+de override em testes.
 """
 
-from typing import Protocol, Sequence, runtime_checkable
+from app.domain import (
+    Pendencia,
+    PendenciasProvider,
+    ShogunOrquestradorProvider,
+    StatusAgente,
+)
 
-from pydantic import BaseModel
+__all__ = [
+    "Pendencia",
+    "PendenciasProvider",
+    "StatusAgente",
+    "get_pendencias_provider",
+]
 
-
-class Pendencia(BaseModel):
-    """Um item pendente na vida do Marcus."""
-
-    titulo: str
-    detalhe: str | None = None
-    prazo: str | None = None
-
-
-@runtime_checkable
-class PendenciasProvider(Protocol):
-    """Fonte de pendências consultada pela ação ``consultar_pendencias``."""
-
-    async def listar_pendencias(self, limite: int = 10) -> Sequence[Pendencia]: ...
-
-
-class PendenciasProviderStub:
-    """Implementação vazia usada até o provedor real existir.
-
-    Não inventa dados: devolve lista vazia, e a resposta falada deixa claro que a
-    fonte de pendências ainda não está conectada.
-    """
-
-    disponivel = False
-
-    async def listar_pendencias(self, limite: int = 10) -> Sequence[Pendencia]:
-        return []
-
-
-_provider: PendenciasProvider = PendenciasProviderStub()
+# Default: o orquestrador do próprio Shogun, hoje em memória. É uma
+# implementação real do contrato — quando não há nada registrado, a lista é
+# legitimamente vazia. Trocar por ``MaestriProvider(...)`` quando a API existir.
+_provider: PendenciasProvider = ShogunOrquestradorProvider()
 
 
 def get_pendencias_provider() -> PendenciasProvider:

@@ -3,6 +3,7 @@
 import logging
 
 from fastapi import APIRouter, Depends, HTTPException, status
+from starlette.concurrency import run_in_threadpool
 
 from app.core.contracts import AgentAction, CommandRequest, CommandResponse
 from app.core.llm import (
@@ -13,21 +14,34 @@ from app.core.llm import (
 )
 from app.core.pendencias import PendenciasProvider, get_pendencias_provider
 from app.core.security import require_auth
+from app.domain import Pendencia, StatusAgente
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["comando"], dependencies=[Depends(require_auth)])
 
 
+# Estados que merecem destaque na fala: são pendências que estão travando algo.
+_STATUS_CRITICOS = frozenset({StatusAgente.TRAVADO, StatusAgente.ERRO})
+
+
+def _descrever(pendencia: Pendencia) -> str:
+    """Uma pendência em uma frase curta, do jeito que o Shogun falaria."""
+    texto = f"{pendencia.descricao} ({pendencia.agente_nome}"
+    if pendencia.status in _STATUS_CRITICOS:
+        texto += f", {pendencia.status.value}"
+    return texto + ")"
+
+
 async def _consultar_pendencias(
     intencao: ComandoInterpretado, provider: PendenciasProvider
 ) -> tuple[str, AgentAction]:
     """Executa a ação ``consultar_pendencias`` usando o provedor injetado."""
-    limite = intencao.parametros.get("limite", 10)
-    limite = limite if isinstance(limite, int) and limite > 0 else 10
-
     try:
-        pendencias = await provider.listar_pendencias(limite=limite)
+        # get_pendencias_agentes() é síncrono e pode fazer I/O (ex.: MaestriProvider
+        # chama a API do Maestri), então vai para a threadpool para não bloquear
+        # o event loop enquanto outros comandos são atendidos.
+        pendencias = list(await run_in_threadpool(provider.get_pendencias_agentes))
     except Exception as exc:  # provedor externo: nunca derruba o comando
         logger.exception("Falha ao consultar pendências")
         return (
@@ -36,31 +50,32 @@ async def _consultar_pendencias(
         )
 
     if not pendencias:
-        # Distingue "nada pendente" de "fonte ainda não conectada", para não
-        # afirmar ao Marcus que ele está em dia quando na verdade não sabemos.
-        if not getattr(provider, "disponivel", True):
-            return (
-                "A fonte de pendências ainda não está conectada, Marcus.",
-                AgentAction(
-                    agent="pendencias",
-                    status="error",
-                    detail="Provedor de pendências não configurado.",
-                ),
-            )
         return (
-            "Você não tem pendências no momento, Marcus.",
+            "Nenhuma pendência registrada, Marcus.",
             AgentAction(agent="pendencias", status="ok", detail="0 pendências"),
         )
 
-    itens = "; ".join(
-        p.titulo if not p.prazo else f"{p.titulo} (até {p.prazo})" for p in pendencias
-    )
-    plural = "pendência" if len(pendencias) == 1 else "pendências"
+    # O contrato não promete ordem; as mais urgentes vêm primeiro na fala.
+    pendencias.sort(key=lambda p: (-p.prioridade, p.timestamp))
+
+    # `limite` não faz parte de get_pendencias_agentes(), então é aplicado aqui:
+    # serve para o Marcus pedir "as três mais urgentes" sem estourar a fala.
+    total = len(pendencias)
+    limite = intencao.parametros.get("limite")
+    if isinstance(limite, int) and 0 < limite < total:
+        pendencias = pendencias[:limite]
+
+    itens = "; ".join(_descrever(p) for p in pendencias)
+    plural = "pendência" if total == 1 else "pendências"
+    fala = f"Você tem {total} {plural}: {itens}."
+    if len(pendencias) < total:
+        fala = (
+            f"Você tem {total} {plural}. As {len(pendencias)} mais urgentes: {itens}."
+        )
+
     return (
-        f"Você tem {len(pendencias)} {plural}: {itens}.",
-        AgentAction(
-            agent="pendencias", status="ok", detail=f"{len(pendencias)} pendências"
-        ),
+        fala,
+        AgentAction(agent="pendencias", status="ok", detail=f"{total} pendências"),
     )
 
 

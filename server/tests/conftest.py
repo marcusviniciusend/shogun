@@ -1,6 +1,7 @@
 """Fixtures compartilhadas — nenhum teste toca em API real."""
 
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
 
 import pytest
@@ -10,7 +11,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from app.core.config import Settings  # noqa: E402
 from app.core.llm import ComandoInterpretado, LLMIndisponivelError  # noqa: E402
-from app.core.pendencias import Pendencia  # noqa: E402
+from app.domain import Pendencia, PendenciasProvider, StatusAgente  # noqa: E402
 
 TOKEN = "token-de-teste"
 
@@ -37,14 +38,35 @@ class LLMFake:
         return self.resposta
 
 
-class PendenciasFake:
-    disponivel = True
+def _pendencia(descricao: str, prioridade: int = 0, status=StatusAgente.PENDENTE):
+    return Pendencia(
+        agente_id="a1",
+        agente_nome="Contratos",
+        status=status,
+        descricao=descricao,
+        timestamp=datetime(2026, 9, 2, 12, 0, tzinfo=timezone.utc),
+        prioridade=prioridade,
+    )
 
-    async def listar_pendencias(self, limite: int = 10):
-        return [
-            Pendencia(titulo="Assinar contrato", prazo="sexta"),
-            Pendencia(titulo="Ligar pro contador"),
-        ][:limite]
+
+class PendenciasFake(PendenciasProvider):
+    """Implementa o contrato real do agente-contratos (síncrono, sem limite)."""
+
+    def __init__(self, pendencias=None):
+        self.pendencias = (
+            pendencias
+            if pendencias is not None
+            else [
+                _pendencia("Assinar contrato", prioridade=5),
+                _pendencia("Ligar pro contador"),
+            ]
+        )
+
+    def get_pendencias_agentes(self):
+        return list(self.pendencias)
+
+    def get_status_agente(self, agente_id: str) -> StatusAgente:
+        return StatusAgente.PENDENTE
 
 
 @pytest.fixture
@@ -71,7 +93,8 @@ def client(settings_teste, llm):
     app.dependency_overrides = {
         get_settings: lambda: settings_teste,
         get_llm_provider: lambda: llm,
-        get_pendencias_provider: PendenciasFake,
+        # lambda, e nao a classe: FastAPI inspecionaria o __init__ como dependência.
+        get_pendencias_provider: lambda: PendenciasFake(),
     }
     with TestClient(app) as c:
         yield c
