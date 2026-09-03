@@ -105,6 +105,11 @@ secrets.json
 Thumbs.db
 desktop.ini
 
+# ---------- Orquestracao local (Maestri) ----------
+# Artefato local do canvas: prompts de papel por agente e settings do Claude Code.
+# E estado da maquina do desenvolvedor, nao codigo do projeto.
+.maestri/
+
 # ---------- Logs / temp ----------
 *.log
 logs/
