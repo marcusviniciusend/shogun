@@ -68,8 +68,9 @@ um `Protocol` com um método: `async interpretar_comando(texto) -> ComandoInterp
 - Toda falha (rede, timeout, rate limit, resposta fora do formato) vira
   `LLMIndisponivelError`. É o erro que a rota trata e o que dispara o fallback.
 - `PROVIDERS` (`core/llm/registry.py`) mapeia nome de configuração → classe:
-  `claude` (`ClaudeProvider`), `deepseek` e `openai_mini` (`openai_compat.py`), além do
-  provedor local `ollama` em desenvolvimento em `feature/servidor-central`.
+  `claude` (`ClaudeProvider`), `deepseek` e `openai_mini` (`openai_compat.py`) e
+  `ollama` (`OllamaProvider`, `core/llm/ollama.py`) — provedor local, já
+  implementado, registrado em `PROVIDERS` e coberto por testes.
 - `FallbackLLMProvider` envolve o principal quando `SHOGUN_LLM_FALLBACK_PROVIDER`
   está preenchido: o reserva assume se o principal levantar `LLMIndisponivelError`.
 
