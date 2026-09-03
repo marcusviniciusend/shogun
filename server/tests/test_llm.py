@@ -3,6 +3,8 @@
 import json
 from types import SimpleNamespace
 
+import anthropic
+
 import pytest
 from openai import APITimeoutError, RateLimitError
 
@@ -193,6 +195,109 @@ async def test_resposta_truncada_vira_erro_do_dominio(config):
     provider = OpenAIMiniProvider(config)
     _mockar(provider, _resposta_openai(RESPOSTA_JSON, finish_reason="length"))
     with pytest.raises(LLMIndisponivelError, match="SHOGUN_MAX_TOKENS"):
+        await provider.interpretar_comando("oi")
+
+
+# --- Claude ---------------------------------------------------------------
+
+
+def _resposta_claude(texto, stop_reason="end_turn", stop_details=None):
+    conteudo = [SimpleNamespace(type="text", text=texto)] if texto is not None else []
+    return SimpleNamespace(
+        content=conteudo, stop_reason=stop_reason, stop_details=stop_details
+    )
+
+
+class MessagesFake:
+    """Substitui client.messages e guarda os kwargs recebidos."""
+
+    def __init__(self, resposta=None, erro: Exception | None = None):
+        self.resposta = resposta
+        self.erro = erro
+        self.kwargs: dict = {}
+
+    async def create(self, **kwargs):
+        self.kwargs = kwargs
+        if self.erro is not None:
+            raise self.erro
+        return self.resposta
+
+
+def _mockar_claude(provider, resposta=None, erro=None) -> MessagesFake:
+    messages = MessagesFake(resposta, erro)
+    provider._client = SimpleNamespace(messages=messages)
+    return messages
+
+
+async def test_claude_usa_structured_output_nativo(config):
+    provider = ClaudeProvider(config)
+    assert provider.nome == "claude"
+    messages = _mockar_claude(provider, _resposta_claude(RESPOSTA_JSON))
+
+    comando = await provider.interpretar_comando("abre o spotify")
+
+    formato = messages.kwargs["output_config"]["format"]
+    assert formato == {"type": "json_schema", "schema": ESQUEMA_COMANDO}
+    # Com o schema imposto pela API, o prompt e a personalidade pura.
+    assert messages.kwargs["system"] == SYSTEM_PROMPT
+    assert messages.kwargs["model"] == "claude-opus-5"
+    assert messages.kwargs["messages"] == [
+        {"role": "user", "content": "abre o spotify"}
+    ]
+    assert comando.acao == "abrir_app"
+    assert comando.parametros == {"app": "Spotify"}
+
+
+async def test_claude_limita_o_esforco_de_raciocinio(config):
+    """O thinking adaptativo sai do mesmo teto de max_tokens da resposta."""
+    provider = ClaudeProvider(config)
+    messages = _mockar_claude(provider, _resposta_claude(RESPOSTA_JSON))
+
+    await provider.interpretar_comando("oi")
+
+    assert messages.kwargs["output_config"]["effort"] == "low"
+    assert messages.kwargs["max_tokens"] == config.shogun_max_tokens
+
+
+async def test_claude_sem_chave_falha_sem_chamar_api():
+    provider = ClaudeProvider(Settings(_env_file=None, anthropic_api_key=""))
+    assert not provider.configurado
+    with pytest.raises(LLMIndisponivelError, match="ANTHROPIC_API_KEY"):
+        await provider.interpretar_comando("oi")
+
+
+async def test_claude_converte_erro_de_api_em_erro_do_dominio(config):
+    provider = ClaudeProvider(config)
+    _mockar_claude(provider, erro=anthropic.APIConnectionError(request=None))
+    with pytest.raises(LLMIndisponivelError, match="Anthropic"):
+        await provider.interpretar_comando("oi")
+
+
+async def test_claude_recusa_do_modelo_vira_erro_do_dominio(config):
+    provider = ClaudeProvider(config)
+    _mockar_claude(
+        provider,
+        _resposta_claude(
+            None,
+            stop_reason="refusal",
+            stop_details=SimpleNamespace(explanation="nao posso ajudar"),
+        ),
+    )
+    with pytest.raises(LLMIndisponivelError, match="nao posso ajudar"):
+        await provider.interpretar_comando("oi")
+
+
+async def test_claude_resposta_truncada_vira_erro_do_dominio(config):
+    provider = ClaudeProvider(config)
+    _mockar_claude(provider, _resposta_claude(RESPOSTA_JSON, stop_reason="max_tokens"))
+    with pytest.raises(LLMIndisponivelError, match="SHOGUN_MAX_TOKENS"):
+        await provider.interpretar_comando("oi")
+
+
+async def test_claude_sem_bloco_de_texto_vira_erro_do_dominio(config):
+    provider = ClaudeProvider(config)
+    _mockar_claude(provider, _resposta_claude(None))
+    with pytest.raises(LLMIndisponivelError, match="sem conteudo|sem conte"):
         await provider.interpretar_comando("oi")
 
 
