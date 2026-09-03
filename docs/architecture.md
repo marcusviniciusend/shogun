@@ -1,10 +1,14 @@
 # Arquitetura do Shogun
 
+Índice da documentação técnica. O detalhe vive nos documentos temáticos; esta
+página só dá a visão geral e aponta para eles.
+
 ## Visão geral
 
-O Shogun é dividido entre um **servidor central** (o "cérebro") e **clientes finos**
-(desktop e mobile). Os clientes capturam voz, exibem a interface e reproduzem a
-resposta; toda a inteligência, memória e orquestração ficam no servidor.
+O Shogun é dividido entre um **servidor central** (o "cérebro") e **clientes
+finos** (desktop e mobile). Os clientes capturam voz, exibem a interface e
+reproduzem a resposta; toda a inteligência, memória e orquestração ficam no
+servidor.
 
 ```
   ┌────────────┐        ┌────────────┐
@@ -14,49 +18,48 @@ resposta; toda a inteligência, memória e orquestração ficam no servidor.
         │      WebSocket / HTTP      │
         └──────────┬─────────────────┘
                    ▼
-            ┌─────────────┐      ┌──────────────┐
-            │   server    │─────▶│  API Claude  │
-            │  (FastAPI)  │      └──────────────┘
-            │             │
-            │  orquestrador
-            │   ├── agente de sistema
-            │   ├── agente de agenda
-            │   └── agente de busca
+            ┌─────────────┐      ┌──────────────────────────────────┐
+            │   server    │─────▶│           LLM Provider           │
+            │  (FastAPI)  │      │ Claude | DeepSeek | GPT-4o mini  │
+            │             │      │      | Ollama/Hermes (local)     │
+            │ orquestrador│      │     com fallback automático      │
+            │  ├── sistema│      └──────────────────────────────────┘
+            │  ├── agenda │
+            │  └── busca  │
             └─────────────┘
 ```
 
-## Fluxo de um comando
+## Documentos
 
-1. O cliente detecta o acionamento (hotkey, botão ou wake word) e captura o áudio.
-2. O áudio é transcrito (STT) e o texto é enviado ao servidor como `CommandRequest`.
-3. O orquestrador monta o contexto da sessão e chama a API da Claude.
-4. Se a resposta indicar uso de ferramentas, o orquestrador aciona os agentes
-   correspondentes e devolve os resultados ao modelo.
-5. A resposta final volta ao cliente como `CommandResponse`.
-6. O cliente exibe o texto e o sintetiza em voz (TTS).
+| Documento | Sobre |
+| --- | --- |
+| [DESIGN.md](DESIGN.md) | O caminho completo de uma mensagem, passo a passo, marcando o que já existe e o que falta |
+| [DATABASE.md](DATABASE.md) | Schema de sessões e histórico em SQLite/SQLAlchemy, e os critérios para migrar a Postgres |
+| [AGENTS.md](AGENTS.md) | O papel de `server/app/agents/` e a distinção entre agentes do Shogun e agentes do Maestri |
+
+Fora de `docs/`: [`server/README.md`](../server/README.md) tem a configuração dos
+provedores de LLM e como rodar o modelo local com Ollama.
 
 ## Componentes
 
-### server (Python + FastAPI)
-Ponto único de entrada. Expõe HTTP para operações pontuais e WebSocket para a
-conversa em streaming. Guarda o histórico e a memória de longo prazo das sessões.
-
-### desktop (Tauri)
-Frontend web empacotado em binário nativo com backend em Rust — usado para hotkey
-global, acesso ao áudio e integração com o sistema operacional.
-
-### mobile (React Native)
-Cliente para celular, com push-to-talk e conversa em tempo real pelo mesmo protocolo
-WebSocket.
-
-### shared
-Contratos em JSON Schema como fonte da verdade, com tipos TypeScript e modelos
-Pydantic derivados, garantindo que servidor e clientes falem a mesma língua.
+| Componente | Papel |
+| --- | --- |
+| `server/` (Python + FastAPI) | Ponto único de entrada. HTTP para operações pontuais, WebSocket para conversa em streaming. Guarda histórico e memória de longo prazo. |
+| `desktop/` (Tauri) | Frontend web em binário nativo com backend Rust — hotkey global, áudio e integração com o SO. |
+| `mobile/` (React Native) | Push-to-talk e conversa em tempo real pelo mesmo protocolo. |
+| `shared/` | Contratos como fonte da verdade, com tipos TypeScript e modelos Pydantic derivados — servidor e clientes falam a mesma língua. |
 
 ## Decisões em aberto
 
-- Onde roda o STT: no cliente (menor latência, mais peso no app) ou no servidor
-  (clientes mais simples, mais tráfego).
+- Onde roda o STT: hoje no cliente (menor latência, mais peso no app); a
+  alternativa é no servidor (clientes mais simples, mais tráfego).
 - Motor de TTS e se a voz é sintetizada no cliente ou no servidor.
-- Estratégia de autenticação entre clientes e servidor.
-- Formato da memória de longo prazo (arquivo, SQLite ou banco vetorial).
+- Contrato de `abrir_app` entre servidor e cliente — o servidor não tem acesso ao
+  SO do Marcus. Ver [AGENTS.md](AGENTS.md).
+- Formato da memória de longo prazo, além do histórico bruto de mensagens — é
+  um dos gatilhos de migração para Postgres em [DATABASE.md](DATABASE.md).
+- Streaming da resposta: SSE ou WebSocket, e como conciliar com a saída
+  estruturada dos provedores. Ver [DESIGN.md](DESIGN.md).
+
+Já decididos: autenticação por Bearer token fixo (`SHOGUN_AUTH_TOKEN`);
+persistência em SQLite via SQLAlchemy ([DATABASE.md](DATABASE.md)).
