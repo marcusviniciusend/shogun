@@ -13,6 +13,7 @@ from app.core.llm.base import (
 )
 from app.core.llm.claude import ClaudeProvider
 from app.core.llm.fallback import FallbackLLMProvider
+from app.core.llm.ollama import OllamaProvider
 from app.core.llm.openai_compat import (
     DeepSeekProvider,
     OpenAICompatProvider,
@@ -39,6 +40,7 @@ __all__ = [
     "FallbackLLMProvider",
     "LLMIndisponivelError",
     "LLMProvider",
+    "OllamaProvider",
     "OpenAICompatProvider",
     "OpenAIMiniProvider",
     "ProviderDesconhecidoError",
