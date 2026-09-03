@@ -7,7 +7,8 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", env_prefix="", extra="ignore")
 
     # --- Provedor de LLM ---------------------------------------------------
-    # Nome registrado em app.core.llm.PROVIDERS.
+    # Nome registrado em app.core.llm.PROVIDERS:
+    # claude | deepseek | openai_mini | ollama
     shogun_llm_provider: str = "claude"
     # Provedor acionado quando o principal falha. Vazio = sem fallback.
     shogun_llm_fallback_provider: str = ""
@@ -28,6 +29,10 @@ class Settings(BaseSettings):
 
     openai_api_key: str = ""
     openai_mini_model: str = "gpt-4o-mini"
+
+    # Ollama roda local e nao usa credencial — so endereco e nome do modelo.
+    ollama_base_url: str = "http://localhost:11434"
+    ollama_model: str = "hermes3:8b"
 
     # --- Autenticação dos clientes -----------------------------------------
     # Token fixo (Bearer) compartilhado com os clientes.
