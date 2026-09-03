@@ -91,6 +91,11 @@ ios/*.xcworkspace/xcuserdata/
 # ---------- Env & secrets ----------
 .env
 .env.*
+# Cobre tambem os arquivos com prefixo (prod.env, staging.env), que os padroes
+# acima nao pegam. Nao casa com .env.example, que termina em .example.
+*.env
+# A negacao vem por ultimo para vencer os padroes acima: o .env.example e o
+# template versionado e deve continuar rastreado.
 !.env.example
 *.pem
 secrets.json
