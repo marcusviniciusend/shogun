@@ -4,7 +4,8 @@ Servidor central do Shogun — Python 3.11+ com FastAPI.
 
 Responsabilidades:
 - expor a API (HTTP + WebSocket) consumida pelos clientes desktop e mobile;
-- transcrever/receber comandos e enviá-los à API da Claude;
+- receber comandos já transcritos e interpretá-los via `LLMProvider` (Claude,
+  DeepSeek, OpenAI ou modelo local no Ollama);
 - orquestrar agentes especializados (`app/agents/`);
 - manter contexto e memória da conversa.
 
@@ -14,7 +15,7 @@ Responsabilidades:
 python -m venv .venv
 source .venv/bin/activate      # Windows: .venv\Scripts\activate
 pip install -r requirements.txt   # ou requirements-dev.txt para rodar os testes
-cp .env.example .env           # preencha ANTHROPIC_API_KEY
+cp .env.example .env           # preencha a credencial do provedor escolhido
 uvicorn app.main:app --reload
 ```
 
@@ -25,7 +26,7 @@ app/
 ├── main.py     # entrypoint FastAPI
 ├── api/        # rotas HTTP e WebSocket
 ├── agents/     # agentes especializados
-└── core/       # config, cliente Claude, utilidades
+└── core/       # config, provedores de LLM, segurança, utilidades
 ```
 
 ## API
@@ -56,20 +57,20 @@ Contratos (`CommandRequest` / `CommandResponse`) vêm de `shared/python`.
 
 | ação | comportamento |
 | --- | --- |
-| `conversar` | devolve a resposta livre da Claude |
+| `conversar` | devolve a resposta livre do modelo |
 | `consultar_pendencias` | consulta o `PendenciasProvider` injetado |
 | `abrir_app` | placeholder — TODO, a execução caberá ao cliente |
 
 ### Injeção de dependências
 
-`app/core/pendencias.py` define uma interface **temporária** (`PendenciasProvider`)
-com a assinatura assumida `async listar_pendencias(limite: int)`. Enquanto o módulo
-de domínio do `agente-contratos` não existir, `get_pendencias_provider` devolve um
-stub vazio. No merge, troque o retorno dessa função pelo provedor real — nenhuma
-rota precisa mudar.
+O contrato `PendenciasProvider` (com `Pendencia` e `StatusAgente`) vive em
+`app/domain/`. `app/core/pendencias.py` é apenas o ponto de injeção do FastAPI:
+`get_pendencias_provider` devolve a implementação padrão
+(`ShogunOrquestradorProvider`). Trocar para `MaestriProvider` quando a API existir
+é mudar uma linha — nenhuma rota precisa mudar.
 
 Em testes, sobrescreva com `app.dependency_overrides[get_pendencias_provider]`;
-o mesmo vale para `get_claude_client` e `get_settings`.
+o mesmo vale para `get_llm_provider` e `get_settings`.
 
 ## Provedores de LLM
 
@@ -89,6 +90,7 @@ não muda quem o Shogun é.
 | `claude` | `ClaudeProvider` | `output_config.format` (json_schema nativo) |
 | `deepseek` | `DeepSeekProvider` | JSON mode + schema descrito no prompt |
 | `openai_mini` | `OpenAIMiniProvider` | `response_format` json_schema `strict` |
+| `ollama` | `OllamaProvider` | `format` com JSON Schema (gramática, local) |
 
 ### Adicionando um provedor
 
@@ -112,6 +114,63 @@ SHOGUN_LLM_FALLBACK_PROVIDER=deepseek
 
 Trocar de provedor ou ligar o fallback é só variável de ambiente — `api/comando.py`
 recebe o provedor por `Depends(get_llm_provider)` e não conhece nenhuma implementação.
+
+## Rodando local com Ollama
+
+Para uso recorrente sem custo de API, o provedor `ollama` roda o modelo na sua
+máquina. A recomendação é **não** usá-lo sozinho: deixe um provedor de nuvem como
+fallback, porque um modelo 8B erra o formato com mais frequência que um modelo de
+fronteira — e quando erra, o fallback responde em vez de o comando falhar.
+
+### 1. Instalar o Ollama
+
+| Sistema | Como |
+| --- | --- |
+| macOS / Windows | baixe o instalador em <https://ollama.com/download> |
+| Linux | `curl -fsSL https://ollama.com/install.sh \| sh` |
+
+O instalador já deixa o serviço rodando em `http://localhost:11434`. Para conferir:
+
+```bash
+curl http://localhost:11434/api/tags
+```
+
+### 2. Baixar o modelo
+
+```bash
+ollama pull hermes3:8b     # ~4,7 GB
+```
+
+Precisa de **Ollama 0.5+**: é a versão que aceita um JSON Schema no campo `format`.
+Em versões anteriores só existe `"format": "json"`, que garante JSON sintaticamente
+válido mas não impõe o schema — o provedor continua funcionando, porém a taxa de
+resposta rejeitada na validação sobe bastante.
+
+### 3. Apontar o servidor para ele
+
+```bash
+SHOGUN_LLM_PROVIDER=ollama
+SHOGUN_LLM_FALLBACK_PROVIDER=deepseek   # ou claude
+OLLAMA_BASE_URL=http://localhost:11434  # default
+OLLAMA_MODEL=hermes3:8b                 # default
+```
+
+Nenhuma credencial é necessária para o Ollama — mas a do **fallback** sim, senão
+ele falha junto e o erro cita os dois motivos.
+
+### Notas de operação
+
+- **Primeira chamada é lenta.** O modelo é carregado na memória sob demanda; em
+  CPU isso passa fácil dos 30 s do `SHOGUN_LLM_TIMEOUT` e dispara o fallback sem
+  necessidade. Ou suba o timeout, ou "aqueça" o modelo com um `ollama run
+  hermes3:8b ""` antes de subir o servidor.
+- **`SHOGUN_MAX_TOKENS` vira `num_predict`.** Vale para o modelo local o mesmo
+  teto configurado para os outros provedores.
+- **Ollama fora do ar não derruba a aplicação.** A falha de conexão vira
+  `LLMIndisponivelError`, que é exatamente o que o `FallbackLLMProvider` trata.
+  Sem fallback configurado, a rota devolve 503.
+- **Trocar de modelo é só `OLLAMA_MODEL`** (`llama3.1:8b`, `qwen2.5:7b`, …), desde
+  que o modelo suporte saída estruturada no Ollama.
 
 ## Testes
 
