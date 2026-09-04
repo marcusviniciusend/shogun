@@ -16,6 +16,7 @@ from app.core.llm import (
     SYSTEM_PROMPT,
     ClaudeProvider,
     ComandoInterpretado,
+    ConfiguracaoInvalidaError,
     DeepSeekProvider,
     FallbackLLMProvider,
     LLMIndisponivelError,
@@ -446,6 +447,78 @@ async def test_ollama_sem_conteudo_vira_erro_do_dominio(config):
 
     with pytest.raises(LLMIndisponivelError, match="sem conteudo"):
         await provider.interpretar_comando("oi")
+
+
+# --- Ollama: OLLAMA_MODEL e obrigatoria -----------------------------------
+
+
+def _config_sem_modelo(**extra) -> Settings:
+    return Settings(_env_file=None, anthropic_api_key="ant-x", **extra)
+
+
+def test_ollama_sem_modelo_configurado_falha_na_construcao():
+    """Sem OLLAMA_MODEL nao ha default: o provedor recusa nascer."""
+    with pytest.raises(ConfiguracaoInvalidaError, match="OLLAMA_MODEL"):
+        OllamaProvider(_config_sem_modelo())
+
+
+def test_ollama_com_modelo_so_de_espacos_falha_na_construcao():
+    with pytest.raises(ConfiguracaoInvalidaError):
+        OllamaProvider(_config_sem_modelo(ollama_model="   "))
+
+
+def test_erro_de_modelo_ausente_aponta_os_candidatos_do_readme():
+    """A mensagem tem que dizer o que fazer, nao so que faltou algo."""
+    with pytest.raises(ConfiguracaoInvalidaError) as exc:
+        OllamaProvider(_config_sem_modelo())
+    assert "README" in str(exc.value)
+
+
+def test_erro_de_modelo_ausente_nao_e_de_disponibilidade():
+    """Config invalida nao pode passar por falha de LLM: o fallback nao a trata."""
+    with pytest.raises(ConfiguracaoInvalidaError) as exc:
+        OllamaProvider(_config_sem_modelo())
+    assert not isinstance(exc.value, LLMIndisponivelError)
+
+
+def test_ollama_model_nao_tem_default_em_settings():
+    """O valor sai do ambiente ou nao existe — nada de modelo escolhido no codigo."""
+    assert Settings(_env_file=None).ollama_model == ""
+
+
+async def test_modelo_configurado_chega_no_payload(config):
+    """Caminho feliz: o modelo do payload e exatamente o da configuracao."""
+    transporte, capturado = _ollama_ok()
+    provider = OllamaProvider(
+        config.model_copy(update={"ollama_model": "qwen2.5:7b-instruct"}),
+        transport=transporte,
+    )
+    comando = await provider.interpretar_comando("bom dia")
+    assert capturado["body"]["model"] == "qwen2.5:7b-instruct"
+    assert comando.acao == "abrir_app"
+
+
+def test_outros_provedores_nao_exigem_ollama_model():
+    """Quem roda com claude/deepseek/openai_mini nao paga o preco do ollama."""
+    config = _config_sem_modelo(deepseek_api_key="ds-x", openai_api_key="oa-x")
+    for nome in ("claude", "deepseek", "openai_mini"):
+        assert criar_provider(nome, config).nome == nome
+
+
+def test_montar_provider_com_ollama_sem_modelo_falha_cedo():
+    """Erro de config aparece na factory, nao no primeiro comando do Marcus."""
+    config = _config_sem_modelo(shogun_llm_provider="ollama")
+    with pytest.raises(ConfiguracaoInvalidaError, match="OLLAMA_MODEL"):
+        montar_provider(config)
+
+
+def test_ollama_como_fallback_sem_modelo_tambem_falha_cedo():
+    """Vale igual quando o ollama e so a reserva."""
+    config = _config_sem_modelo(
+        shogun_llm_provider="claude", shogun_llm_fallback_provider="ollama"
+    )
+    with pytest.raises(ConfiguracaoInvalidaError, match="OLLAMA_MODEL"):
+        montar_provider(config)
 
 
 # --- Ollama + fallback (o cenario de uso local) ---------------------------
