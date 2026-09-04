@@ -1,5 +1,8 @@
 """Provedor Ollama — modelo local, sem custo de API.
 
+O modelo nao esta fixado aqui nem tem default: vem inteiro de ``OLLAMA_MODEL``, e
+sua ausencia e um erro de configuracao levantado na construcao do provedor.
+
 Usa o endpoint nativo ``/api/chat``, e nao o ``/v1/chat/completions`` compativel
 com OpenAI que o Ollama tambem expoe. O motivo e a saida estruturada: no endpoint
 nativo o campo ``format`` aceita um JSON Schema completo e o Ollama o converte em
@@ -19,6 +22,7 @@ from app.core.llm.base import (
     ESQUEMA_COMANDO,
     SYSTEM_PROMPT,
     ComandoInterpretado,
+    ConfiguracaoInvalidaError,
     LLMIndisponivelError,
     parsear_comando,
 )
@@ -34,8 +38,19 @@ class OllamaProvider:
         config: Settings,
         transport: httpx.AsyncBaseTransport | None = None,
     ) -> None:
+        modelo = (config.ollama_model or "").strip()
+        if not modelo:
+            # Erro de configuracao, nao de disponibilidade: nao ha o que tentar
+            # de novo, entao falha aqui, na construcao, e nao no primeiro comando.
+            raise ConfiguracaoInvalidaError(
+                "OLLAMA_MODEL nao esta definida. O provedor 'ollama' nao tem "
+                "modelo padrao — escolha um e informe no .env (ex.: "
+                "OLLAMA_MODEL=qwen2.5:7b-instruct). A lista de candidatos, com "
+                "VRAM e aderencia ao ESQUEMA_COMANDO, esta em server/README.md, "
+                "secao 'Modelos candidatos'."
+            )
         self._config = config
-        self._modelo = config.ollama_model
+        self._modelo = modelo
         self._url = f"{config.ollama_base_url.rstrip('/')}/api/chat"
         # `transport` existe para os testes injetarem um httpx.MockTransport e
         # exercitarem o httpx de verdade (status, raise_for_status, ConnectError)

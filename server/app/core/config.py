@@ -31,8 +31,12 @@ class Settings(BaseSettings):
     openai_mini_model: str = "gpt-4o-mini"
 
     # Ollama roda local e nao usa credencial — so endereco e nome do modelo.
+    # `ollama_model` nao tem default de proposito: qual modelo local usar e uma
+    # escolha com consequencia (VRAM, qualidade do JSON), e um default silencioso
+    # esconderia essa escolha. Sem valor, o servidor sobe normalmente — quem
+    # reclama e o OllamaProvider, e so quando o ollama e o provedor em uso.
     ollama_base_url: str = "http://localhost:11434"
-    ollama_model: str = "hermes3:8b"
+    ollama_model: str = ""
 
     # --- Autenticação dos clientes -----------------------------------------
     # Token fixo (Bearer) compartilhado com os clientes.

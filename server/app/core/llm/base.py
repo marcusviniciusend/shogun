@@ -93,6 +93,17 @@ class LLMIndisponivelError(RuntimeError):
     """
 
 
+class ConfiguracaoInvalidaError(ValueError):
+    """O provedor esta mal configurado e nao pode nem ser construido.
+
+    Diferente de :class:`LLMIndisponivelError`, que e uma falha em tempo de
+    chamada e aciona o fallback: aqui nao ha o que tentar de novo nem para onde
+    cair — falta uma variavel de ambiente. Por isso e levantado no construtor e
+    derruba o boot, como :class:`ProviderDesconhecidoError` ja faz para um nome
+    de provedor invalido.
+    """
+
+
 @runtime_checkable
 class LLMProvider(Protocol):
     """Interface que todo provedor de LLM do Shogun implementa."""

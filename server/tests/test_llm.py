@@ -76,6 +76,8 @@ def config() -> Settings:
         anthropic_api_key="ant-x",
         deepseek_api_key="ds-x",
         openai_api_key="oa-x",
+        # OLLAMA_MODEL nao tem default: sem isso o OllamaProvider nem constroi.
+        ollama_model="hermes3:8b",
     )
 
 
