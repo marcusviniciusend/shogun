@@ -137,8 +137,15 @@ curl http://localhost:11434/api/tags
 
 ### 2. Escolher e baixar o modelo
 
-O modelo **não** está fixado no código: `OllamaProvider` só lê `OLLAMA_MODEL`
-(veja "Modelos candidatos" abaixo antes de escolher). Para baixar:
+Não há modelo padrão: `OLLAMA_MODEL` é **obrigatória** quando o provedor `ollama`
+é o principal ou o fallback. Sem ela, `OllamaProvider` nem chega a ser construído —
+levanta `ConfiguracaoInvalidaError` na factory e o servidor não sobe, apontando esta
+seção. Isso é deliberado: escolher o modelo tem consequência (VRAM, qualidade do
+JSON), e um default silencioso esconderia a escolha. Quem roda com
+`claude`/`deepseek`/`openai_mini` não precisa definir nada — a variável só é lida
+quando o `ollama` está em uso.
+
+Veja "Modelos candidatos" abaixo antes de escolher. Para baixar:
 
 ```bash
 ollama pull <modelo>       # ex.: ollama pull qwen2.5:7b-instruct
@@ -175,7 +182,7 @@ chamada costuma estourar o `SHOGUN_LLM_TIMEOUT`.
 | --- | --- | --- | --- |
 | `qwen2.5:7b-instruct` | ~4,7 GB / ~6 GB | Dos 7B, o mais consistente em JSON estruturado e em respeitar enum; treinado com foco em tool/function calling. | Português do Brasil às vezes sai com cara de tradução na `resposta_falada`. |
 | `llama3.1:8b` | ~4,9 GB / ~6 GB | Suporte oficial a tool calling; português decente; ecossistema e documentação amplos. | Tende a "explicar" fora do JSON quando o schema não é imposto — depende mais da gramática que os outros. |
-| `hermes3:8b` | ~4,7 GB / ~6 GB | Fine-tune do Llama 3.1 voltado justamente a saída estruturada; é o valor que hoje está no `.env.example`. | Herda os limites do 8B base; menos testado em português que o Llama upstream. |
+| `hermes3:8b` | ~4,7 GB / ~6 GB | Fine-tune do Llama 3.1 voltado justamente a saída estruturada. | Herda os limites do 8B base; menos testado em português que o Llama upstream. |
 | `mistral:7b-instruct` | ~4,4 GB / ~5,5 GB | O mais leve do grupo, rápido até em CPU; bom em línguas latinas. | O mais fraco em aderência a enum: erra a `acao` com mais frequência e cai no fallback. |
 | `mistral-nemo:12b` | ~7,1 GB / ~9 GB | Salto real de qualidade sobre os 7B/8B mantendo VRAM de placa de 12 GB; contexto longo. | Já exige GPU dedicada; em CPU fica inviável para uso interativo. |
 | `qwen2.5:14b-instruct` | ~9 GB / ~11 GB | Melhor combinação de JSON + semântica entre os que cabem em 12 GB; erra pouco a ação. | Precisa de 12 GB de VRAM com folga; primeira carga lenta. |
@@ -193,7 +200,7 @@ Trocar de modelo é só `OLLAMA_MODEL` — nada no código muda.
 SHOGUN_LLM_PROVIDER=ollama
 SHOGUN_LLM_FALLBACK_PROVIDER=deepseek   # ou claude
 OLLAMA_BASE_URL=http://localhost:11434  # default
-OLLAMA_MODEL=hermes3:8b                 # default
+OLLAMA_MODEL=qwen2.5:7b-instruct        # obrigatoria, sem default — escolha a sua
 ```
 
 Nenhuma credencial é necessária para o Ollama — mas a do **fallback** sim, senão
@@ -204,7 +211,7 @@ ele falha junto e o erro cita os dois motivos.
 - **Primeira chamada é lenta.** O modelo é carregado na memória sob demanda; em
   CPU isso passa fácil dos 30 s do `SHOGUN_LLM_TIMEOUT` e dispara o fallback sem
   necessidade. Ou suba o timeout, ou "aqueça" o modelo com um `ollama run
-  hermes3:8b ""` antes de subir o servidor.
+  <modelo> ""` antes de subir o servidor.
 - **`SHOGUN_MAX_TOKENS` vira `num_predict`.** Vale para o modelo local o mesmo
   teto configurado para os outros provedores.
 - **Ollama fora do ar não derruba a aplicação.** A falha de conexão vira
