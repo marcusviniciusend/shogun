@@ -135,16 +135,57 @@ O instalador já deixa o serviço rodando em `http://localhost:11434`. Para conf
 curl http://localhost:11434/api/tags
 ```
 
-### 2. Baixar o modelo
+### 2. Escolher e baixar o modelo
+
+O modelo **não** está fixado no código: `OllamaProvider` só lê `OLLAMA_MODEL`
+(veja "Modelos candidatos" abaixo antes de escolher). Para baixar:
 
 ```bash
-ollama pull hermes3:8b     # ~4,7 GB
+ollama pull <modelo>       # ex.: ollama pull qwen2.5:7b-instruct
 ```
 
 Precisa de **Ollama 0.5+**: é a versão que aceita um JSON Schema no campo `format`.
 Em versões anteriores só existe `"format": "json"`, que garante JSON sintaticamente
 válido mas não impõe o schema — o provedor continua funcionando, porém a taxa de
 resposta rejeitada na validação sobe bastante.
+
+### Modelos candidatos
+
+O papel aqui é estreito: **interpretador de comando**. O modelo não precisa
+escrever bem nem saber muito — precisa acertar `ESQUEMA_COMANDO`
+(`app/core/llm/base.py`), que é um schema **fechado**:
+
+- `acao` restrito ao enum `conversar | consultar_pendencias | abrir_app`;
+- `parametros` com `additionalProperties: false` e `required: ["app", "limite"]`
+  — os dois campos são obrigatórios e anuláveis, ou seja, o modelo tem que emitir
+  `null` explicitamente no que não se aplica, em vez de omitir a chave;
+- `resposta_falada` em português do Brasil.
+
+A gramática do Ollama garante a **forma** da saída, não a **semântica**: mesmo com
+o schema aplicado, um modelo fraco escolhe a ação errada ou devolve uma
+`resposta_falada` vazia ou em inglês. O que separa os candidatos é isso, mais o
+comportamento sob decodificação restrita (alguns modelos degradam quando a
+gramática corta os tokens que eles queriam emitir).
+
+Números de VRAM são para os pesos em **Q4_K_M** (o default do `ollama pull`), sem
+contar o contexto — reserve ~1 GB a mais. Rodar em CPU funciona, mas a primeira
+chamada costuma estourar o `SHOGUN_LLM_TIMEOUT`.
+
+| Modelo | Tamanho / VRAM | A favor | Contra |
+| --- | --- | --- | --- |
+| `qwen2.5:7b-instruct` | ~4,7 GB / ~6 GB | Dos 7B, o mais consistente em JSON estruturado e em respeitar enum; treinado com foco em tool/function calling. | Português do Brasil às vezes sai com cara de tradução na `resposta_falada`. |
+| `llama3.1:8b` | ~4,9 GB / ~6 GB | Suporte oficial a tool calling; português decente; ecossistema e documentação amplos. | Tende a "explicar" fora do JSON quando o schema não é imposto — depende mais da gramática que os outros. |
+| `hermes3:8b` | ~4,7 GB / ~6 GB | Fine-tune do Llama 3.1 voltado justamente a saída estruturada; é o valor que hoje está no `.env.example`. | Herda os limites do 8B base; menos testado em português que o Llama upstream. |
+| `mistral:7b-instruct` | ~4,4 GB / ~5,5 GB | O mais leve do grupo, rápido até em CPU; bom em línguas latinas. | O mais fraco em aderência a enum: erra a `acao` com mais frequência e cai no fallback. |
+| `mistral-nemo:12b` | ~7,1 GB / ~9 GB | Salto real de qualidade sobre os 7B/8B mantendo VRAM de placa de 12 GB; contexto longo. | Já exige GPU dedicada; em CPU fica inviável para uso interativo. |
+| `qwen2.5:14b-instruct` | ~9 GB / ~11 GB | Melhor combinação de JSON + semântica entre os que cabem em 12 GB; erra pouco a ação. | Precisa de 12 GB de VRAM com folga; primeira carga lenta. |
+| `phi4:14b` | ~9,1 GB / ~11 GB | Muito bom em raciocínio para o tamanho; obedece instrução de formato. | Português é o ponto fraco — a `resposta_falada` costuma precisar de revisão. |
+| `gemma2:9b` | ~5,4 GB / ~7 GB | Português mais natural na resposta falada. | Sem treino específico de tool calling; é o que mais depende da gramática para não fugir do schema. |
+
+Regra prática para avaliar um candidato: rodar **com o fallback ligado** e com os
+logs à vista. A frequência com que o fallback é acionado é a métrica que importa,
+porque cada acionamento é um `LLMIndisponivelError` por JSON fora do schema.
+Trocar de modelo é só `OLLAMA_MODEL` — nada no código muda.
 
 ### 3. Apontar o servidor para ele
 
@@ -169,7 +210,7 @@ ele falha junto e o erro cita os dois motivos.
 - **Ollama fora do ar não derruba a aplicação.** A falha de conexão vira
   `LLMIndisponivelError`, que é exatamente o que o `FallbackLLMProvider` trata.
   Sem fallback configurado, a rota devolve 503.
-- **Trocar de modelo é só `OLLAMA_MODEL`** (`llama3.1:8b`, `qwen2.5:7b`, …), desde
+- **Trocar de modelo é só `OLLAMA_MODEL`** — veja "Modelos candidatos" acima, desde
   que o modelo suporte saída estruturada no Ollama.
 
 ## Testes
