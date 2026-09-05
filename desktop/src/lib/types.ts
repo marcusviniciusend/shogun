@@ -1,32 +1,22 @@
 /**
- * Tipos do fio (wire) do POST /comando.
+ * Tipos do desktop.
  *
- * Atencao: `shared/ts/index.ts` declara os contratos em camelCase
- * (`sessionId`), mas o JSON real emitido pelo servidor (Pydantic, sem alias)
- * e snake_case (`session_id`). Ate o contrato compartilhado ser alinhado ao
- * fio, o desktop usa estes tipos locais, que espelham o JSON de verdade.
+ * Os contratos do fio (`POST /comando`) NAO sao declarados aqui: vem de
+ * `shared/ts`, que espelha os modelos Pydantic do servidor. Este arquivo so
+ * reexporta, sob os nomes `*Wire` que o codigo do desktop ja usa, e acrescenta
+ * o que e exclusivo da interface.
+ *
+ * O import e relativo e `import type` de proposito — ver "Como os clientes
+ * consomem estes tipos" em `shared/README.md`.
  */
 
-export interface CommandRequestWire {
-  /** Nulo na primeira mensagem: o servidor cria a sessao e devolve o id. */
-  session_id: string | null;
-  text: string;
-  client: "desktop";
-}
+export type {
+  AgentAction as AgentActionWire,
+  CommandRequest as CommandRequestWire,
+  CommandResponse as CommandResponseWire,
+} from "../../../shared/ts";
 
-export interface AgentActionWire {
-  agent: string;
-  status: "ok" | "error";
-  detail?: string | null;
-}
-
-export interface CommandResponseWire {
-  session_id: string;
-  text: string;
-  actions: AgentActionWire[];
-}
-
-/** Mensagem exibida no chat. */
+/** Mensagem exibida no chat. Tipo de interface, nao trafega na rede. */
 export interface MensagemChat {
   autor: "usuario" | "shogun";
   texto: string;
