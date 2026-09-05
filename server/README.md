@@ -16,8 +16,84 @@ python -m venv .venv
 source .venv/bin/activate      # Windows: .venv\Scripts\activate
 pip install -r requirements.txt   # ou requirements-dev.txt para rodar os testes
 cp .env.example .env           # preencha a credencial do provedor escolhido
-uvicorn app.main:app --reload
+uvicorn app.main:app --reload  # desenvolvimento: 127.0.0.1:8000
 ```
+
+O `--reload` do uvicorn escuta em `127.0.0.1` — bom para desenvolvimento, mas
+invisível para outras máquinas. Para subir no host e na porta da configuração
+(`SHOGUN_HOST`, `SHOGUN_PORT`), use o entrypoint do próprio servidor:
+
+```bash
+python -m app.main                # respeita SHOGUN_HOST / SHOGUN_PORT
+```
+
+ou passe as flags na mão:
+
+```bash
+uvicorn app.main:app --host 0.0.0.0 --port 8000
+```
+
+### Escutar na rede exige token
+
+O servidor **recusa subir** quando o bind aceita conexões de outras máquinas
+(qualquer host fora de `127.0.0.1`, `localhost` e `::1`) e `SHOGUN_AUTH_TOKEN`
+está vazio. A falha é fatal, no startup, antes de a porta abrir — vale tanto
+para `python -m app.main` quanto para `uvicorn app.main:app`:
+
+```
+ConfiguracaoInseguraError: o servidor vai escutar em 0.0.0.0, vindo de
+uvicorn --host, o que aceita conexoes de outras maquinas - mas
+SHOGUN_AUTH_TOKEN esta vazio, entao ele ficaria aberto a quem alcancasse a
+porta. Defina SHOGUN_AUTH_TOKEN, ou escute em 127.0.0.1 para desenvolvimento
+local sem token.
+```
+
+A mensagem diz de onde veio o host (`uvicorn --host`, `SHOGUN_HOST`, `--uds`,
+`--fd`), para não confundir quem tem uma coisa no `.env` e outra na linha de
+comando.
+
+Em bind local o token continua **opcional**: só o próprio computador alcança o
+servidor, e exigir token ali atrapalharia o desenvolvimento sem proteger nada.
+Nesse caso sai apenas um aviso no log.
+
+| Bind efetivo | Sem `SHOGUN_AUTH_TOKEN` | Com token |
+|---|---|---|
+| `127.0.0.1`, `localhost`, `::1` | sobe, com aviso no log | sobe |
+| `0.0.0.0` ou qualquer IP | **recusa subir** | sobe |
+
+#### O que é inspecionado: o bind real, não o `.env`
+
+A verificação **não** lê `SHOGUN_HOST`. Ela lê o host que o servidor ASGI
+realmente recebeu — `uvicorn --host 0.0.0.0` com `SHOGUN_HOST=127.0.0.1` no
+`.env` é barrado do mesmo jeito, e o contrário (`--host 127.0.0.1` com
+`SHOGUN_HOST=0.0.0.0`) sobe normalmente sem token.
+
+O uvicorn não expõe essa informação à aplicação: não há hook de startup nem
+campo no `scope` do lifespan com o host. O caminho usado está em
+`app/core/rede.py` — o lifespan da app roda dentro da tarefa do
+`uvicorn.lifespan.on.LifespanOn.main`, que é quem chama
+`await app(scope, receive, send)`; esse frame carrega o `Config` do uvicorn, e é
+de lá que o host é lido, percorrendo a pilha.
+
+Isso acontece **antes do bind**: o uvicorn executa o lifespan e só depois abre o
+socket (`Server.startup()` chama `lifespan.startup()` e em seguida
+`loop.create_server(...)`). A recusa impede a porta de abrir — não fecha uma
+porta que já abriu.
+
+Casos de borda:
+
+| Situação | Tratamento |
+|---|---|
+| `--host <ip>` / `uvicorn.run(host=...)` | usa esse host |
+| `--uds /caminho.sock` | conta como local (só quem tem o filesystem alcança) |
+| `--fd 3` | assume **exposto**: não dá para saber onde o descritor já escuta |
+| fora do uvicorn (`TestClient`, outro servidor ASGI) | cai para `SHOGUN_HOST` |
+
+A leitura depende de um detalhe interno do uvicorn (o nome do frame e o atributo
+`config`). Se uma versão futura reorganizar isso, `descobrir_bind` volta ao
+`SHOGUN_HOST` em vez de quebrar — e há teste subindo o uvicorn como processo de
+verdade, justamente para que essa regressão apareça na suíte em vez de em
+produção.
 
 ## Layout
 
@@ -219,6 +295,76 @@ ele falha junto e o erro cita os dois motivos.
   Sem fallback configurado, a rota devolve 503.
 - **Trocar de modelo é só `OLLAMA_MODEL`** — veja "Modelos candidatos" acima, desde
   que o modelo suporte saída estruturada no Ollama.
+
+## Acesso remoto via Tailscale
+
+O cliente mobile não fica na mesma rede local que o PC. A ligação é feita pelo
+Tailscale, que coloca os dois na mesma rede privada — o servidor não precisa ser
+publicado na internet, e nenhuma porta é aberta no roteador.
+
+### 1. Descobrir o IP Tailscale do PC
+
+```bash
+tailscale ip -4        # ex.: 100.101.102.103
+```
+
+Esse endereço é estável enquanto a máquina estiver na mesma tailnet. Os
+`100.x.y.z` deste README são **exemplo** — use o que o comando devolver.
+
+### 2. Subir o servidor escutando na rede
+
+```bash
+# .env
+SHOGUN_HOST=0.0.0.0
+SHOGUN_PORT=8000
+SHOGUN_AUTH_TOKEN=<token-compartilhado-com-os-clientes>   # obrigatorio aqui
+```
+
+```bash
+python -m app.main
+```
+
+Sem `SHOGUN_AUTH_TOKEN` o servidor recusa subir — ver
+"Escutar na rede exige token", acima.
+
+### 3. Apontar o cliente
+
+Com o Tailscale ativo no celular, o servidor responde em:
+
+```
+http://100.101.102.103:8000
+```
+
+```bash
+curl http://100.101.102.103:8000/health
+# {"status":"ok"}
+```
+
+As requisições ao `/comando` continuam exigindo o header
+`Authorization: Bearer <SHOGUN_AUTH_TOKEN>`, igual em rede local.
+
+### Sobre segurança
+
+O Tailscale já restringe o acesso à rede privada: só dispositivos da mesma
+tailnet alcançam a porta. Somado ao Bearer token, é o suficiente por agora —
+**não há autenticação adicional planejada** para este cenário.
+
+Vale lembrar que `SHOGUN_HOST=0.0.0.0` escuta em *todas* as interfaces, não só
+na do Tailscale. Numa rede Wi-Fi pública, a porta fica alcançável por quem
+estiver na mesma rede — e é exatamente por isso que o token virou obrigatório
+nesse modo.
+
+### CORS
+
+Não é necessário para os clientes atuais: desktop (Tauri) e mobile (React
+Native) falam HTTP direto, sem origem de navegador, e não disparam preflight.
+O `CORSMiddleware` só é registrado quando `SHOGUN_ALLOWED_ORIGINS` tem valor:
+
+```bash
+SHOGUN_ALLOWED_ORIGINS=http://100.101.102.103:8000,http://localhost:1420
+```
+
+Origens separadas por vírgula, nada hardcoded no código.
 
 ## Testes
 
