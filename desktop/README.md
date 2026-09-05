@@ -42,6 +42,27 @@ Nota sobre contratos: `shared/ts/index.ts` declara os campos em camelCase
 (`session_id`). Até o contrato compartilhado ser alinhado, o desktop usa tipos
 locais em `src/lib/types.ts` que espelham o fio de verdade.
 
+## Identidade visual e animações
+
+O redesenho segue minimalismo japonês ("ma"): fundo carvão, texto em
+off-white, um único acento bengara, e tipografia como voz — o Shogun fala
+em Zen Old Mincho (serifa), o usuário e os controles em Zen Kaku Gothic
+New. Fontes embarcadas via fontsource, nada vem da rede.
+
+Duas animações usam o kanji 将軍 escrito a pincel (WebM com canal alpha em
+`src/assets/`, renderizados com Remotion a partir de um projeto separado,
+fora deste repositório):
+
+- **splash de abertura** — o kanji é escrito traço a traço, sustentado e
+  desfeito (~5,6s); um clique pula. `src/components/Splash.tsx`;
+- **indicador de processamento** — enquanto um `/comando` está em voo, o
+  kanji estático do wordmark dá lugar à versão condensada em loop (2,2s).
+
+Com `prefers-reduced-motion`, nem o splash nem os vídeos montam.
+
+Os traços do kanji vêm do projeto [KanjiVG](http://kanjivg.tagaini.net)
+(Ulrich Apel), licença CC BY-SA 3.0 — atribuição obrigatória mantida aqui.
+
 ## Estrutura
 
 ```
