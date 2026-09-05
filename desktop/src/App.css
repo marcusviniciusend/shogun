@@ -77,6 +77,53 @@ body {
   font-size: 1.15rem;
 }
 
+/*
+ * O kanji assina primeiro, o nome segue — uma vez, na montagem.
+ * `backwards` segura a opacidade em 0 durante o delay.
+ */
+@keyframes marca-entra {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.marca-kanji {
+  animation: marca-entra 700ms ease-out 180ms backwards;
+}
+
+.marca-nome {
+  animation: marca-entra 900ms ease-out 600ms backwards;
+}
+
+/*
+ * Pensando: o kanji respira devagar enquanto o /comando nao responde.
+ * Substitui spinner — a mesma marca que assina e a que trabalha.
+ */
+@keyframes marca-pulsa {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.7;
+  }
+}
+
+.marca-kanji.pensando {
+  animation: marca-pulsa 1.8s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .marca-kanji,
+  .marca-nome,
+  .marca-kanji.pensando {
+    animation: none;
+  }
+}
+
 /* ------------------------------------------------------- status do servidor */
 
 .banner-servidor {

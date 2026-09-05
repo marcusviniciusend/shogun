@@ -151,10 +151,13 @@ export default function App() {
     <div className="app">
       <header className="app-cabecalho">
         <h1>
-          <span className="marca-kanji" aria-hidden>
+          <span
+            className={`marca-kanji${chatCarregando || agentesCarregando ? " pensando" : ""}`}
+            aria-hidden
+          >
             将軍
           </span>
-          Shogun
+          <span className="marca-nome">Shogun</span>
         </h1>
         <button
           type="button"
