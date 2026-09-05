@@ -1,5 +1,28 @@
 # mobile
 
+> ## ⏸️ Em backlog
+>
+> **Decisão do Marcus, 2026-09-05: nenhum trabalho novo aqui até o desktop
+> chegar a uma versão 1.0.** O scaffold está mergeado e passa em
+> `tsc --noEmit`; fica parado onde está.
+>
+> **Ao retomar, isto não está pronto sem alcançar o patamar de resiliência do
+> desktop.** O que falta, concretamente:
+>
+> - `src/api.ts` captura a exceção e trata timeout, mas **não registra a causa
+>   crua** e agrupa todo o resto numa frase só — porta sem ninguém escutando,
+>   DNS e rota morta ficam indistinguíveis;
+> - `verificarSaude()` (`GET /health`) existe, mas só é chamada **manualmente**
+>   no botão "testar conexão" da aba Config. O chat e a aba Status continuam
+>   descobrindo que o servidor caiu gastando uma chamada de LLM;
+> - não há indicador visível de "servidor não alcançado" nas telas de uso.
+>
+> Do lado bom: o timeout de 60 s com `AbortController` daqui é justamente o que
+> o **desktop** ainda não tem.
+>
+> Detalhes em `.maestri/levantamento-resiliencia-desktop.md` e na seção 1.3 de
+> `docs/CONTEXTO-GERAL.md`.
+
 Aplicativo mobile do Shogun — React Native com Expo (TypeScript).
 
 Responsabilidades:

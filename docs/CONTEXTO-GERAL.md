@@ -195,18 +195,53 @@ mockado (`httpx.MockTransport`, para exercitar o httpx de verdade) e rotas com
 `app.dependency_overrides` (`get_llm_provider`, `get_pendencias_provider`,
 `get_settings`).
 
-### 1.3 `desktop/` e `mobile/` — apenas READMEs
+### 1.3 `desktop/` e `mobile/` — scaffolds funcionais
 
-Nenhuma linha de código. Os dois READMEs descrevem responsabilidades e trazem o
-comando de scaffold, não executado:
+Os dois clientes existem e falam com o servidor por HTTP (`POST /comando`).
+WebSocket segue como evolução futura, e ainda não existe no servidor.
 
-| Diretório | Stack prevista | Estado | Scaffold documentado |
-|---|---|---|---|
-| `desktop/` | Tauri (Rust + JS/TS) — hotkey global, captura de áudio, HUD, TTS | só `README.md` | `npm create tauri-app@latest .` |
-| `mobile/` | React Native — push-to-talk/wake word, conversa, TTS | só `README.md` | `npx create-expo-app@latest .` |
+| Diretório | Stack | Estado |
+|---|---|---|
+| `desktop/` | Tauri 2 + React (TypeScript) | **foco atual** — dashboard com chat, painel de agentes e configurações |
+| `mobile/` | React Native + Expo (TypeScript) | **em backlog** — ver abaixo |
 
-Ambos preveem comunicação com o servidor por **WebSocket** — que também ainda não
-existe no servidor (hoje só HTTP).
+Ambos persistem o `session_id` localmente (`tauri-plugin-store` no desktop,
+`AsyncStorage` no mobile) e o reenviam, então a conversa sobrevive a reaberturas.
+Os tipos do fio vêm de `shared/ts`.
+
+Captura de voz (STT) e síntese (TTS) **não existem em nenhum dos dois** — hoje a
+conversa é por texto.
+
+#### ⏸️ `mobile/` está em backlog
+
+**Decisão do Marcus, 2026-09-05: nenhum trabalho novo em `mobile/` até o desktop
+chegar a uma versão 1.0.** O scaffold está mergeado em `dev` (PR #9) e passa em
+`tsc --noEmit`; fica parado onde está.
+
+**Ao retomar, o mobile não pode ser considerado pronto sem alcançar o patamar de
+resiliência do desktop** — mas o ponto de partida não é zero. Comparando
+`mobile/src/api.ts` com o que o desktop recebeu em
+`feature/desktop-resiliencia-basica`:
+
+| Aspecto | Mobile hoje | Falta |
+|---|---|---|
+| timeout de resposta | ✅ 60 s via `AbortController`, e distingue `AbortError` | — (o **desktop** é que não tem; item 2 do levantamento) |
+| erro de rede | 🟡 captura a exceção e separa timeout do resto | não registra a causa crua (sem `console.error`) e agrupa todo o resto numa frase só: porta sem ninguém escutando, DNS e rota morta ficam indistinguíveis |
+| `GET /health` | 🟡 existe (`verificarSaude`) | é **manual**, só no botão "testar conexão" da aba Config. O chat e a aba Status continuam descobrindo que o servidor caiu gastando uma chamada de LLM |
+| indicador de conexão | ❌ | nenhuma faixa ou badge de "servidor não alcançado" nas telas de uso |
+
+Em resumo: o mobile já resolveu o item 2 do levantamento, que o desktop ainda
+não; falta fechar os itens 1 (parcial) e 5 (a checagem existe, mas não é
+automática nem visível onde importa).
+
+`/health` custa ~1,5 ms, não exige token e não toca no modelo — descobrir por ali
+que o servidor está fora é ordens de grandeza mais barato que por um
+`POST /comando`, que leva de 2 a 30 s.
+
+Referências: `.maestri/levantamento-resiliencia-desktop.md` e a branch
+`feature/desktop-resiliencia-basica`. Itens 3, 4 e 6 do levantamento (retry,
+modelo frio no primeiro comando, erro em duplicata) seguem abertos **nos dois** e
+não são pré-requisito.
 
 ### 1.4 `shared/`
 
