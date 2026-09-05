@@ -1,15 +1,26 @@
-/** Contratos compartilhados entre o servidor Shogun e os clientes. */
+/**
+ * Contratos compartilhados entre o servidor Shogun e os clientes.
+ *
+ * Os nomes de campo sao exatamente os que trafegam no JSON — `snake_case`,
+ * como o servidor emite. Os modelos Pydantic em `shared/python` nao usam
+ * alias, entao `session_id` e `session_id` na rede.
+ *
+ * Estes tipos descrevem o **fio**, nao o estilo do codigo do cliente. Um
+ * cliente pode chamar a variavel de `sessionId` internamente; o que ele nao
+ * pode e esperar `sessionId` no corpo da resposta.
+ */
 
 /** Mensagem enviada por um cliente ao servidor. */
 export interface CommandRequest {
   /**
-   * Identificador da sessão de conversa.
+   * Identificador da sessao de conversa.
    *
-   * Nulo na primeira mensagem: o servidor cria a sessão e devolve o id em
-   * `CommandResponse.sessionId`, que o cliente guarda e reenvia depois.
+   * Nulo (ou ausente) na primeira mensagem: o servidor cria a sessao e devolve
+   * o id em `CommandResponse.session_id`, que o cliente guarda e reenvia
+   * depois.
    */
-  sessionId?: string | null;
-  /** Texto já transcrito do comando de voz. */
+  session_id?: string | null;
+  /** Texto ja transcrito do comando de voz. */
   text: string;
   /** Origem do comando. */
   client: "desktop" | "mobile";
@@ -18,10 +29,10 @@ export interface CommandRequest {
 /** Resposta do servidor a um comando. */
 export interface CommandResponse {
   /** Sempre preenchido — inclusive quando o request veio sem id. */
-  sessionId: string;
-  /** Texto a ser exibido e falado ao usuário. */
+  session_id: string;
+  /** Texto a ser exibido e falado ao usuario. */
   text: string;
-  /** Ações executadas por agentes durante o processamento. */
+  /** Acoes executadas por agentes durante o processamento. */
   actions: AgentAction[];
 }
 
