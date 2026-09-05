@@ -9,6 +9,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.api import comando_router
 from app.core.config import settings
 from app.core.llm import get_llm_provider
+from app.core.rede import descobrir_bind
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -17,10 +18,13 @@ logger = logging.getLogger(__name__)
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     # Antes de qualquer outra coisa: nao subir aberto para a rede sem token.
-    # Fica aqui, e nao so em run(), para valer tambem quando o servidor e
-    # iniciado pela CLI do uvicorn (`uvicorn app.main:app`), que nao passa
-    # por run().
-    settings.validar_exposicao()
+    # O bind vem do uvicorn, nao do .env — `uvicorn --host 0.0.0.0` com
+    # SHOGUN_HOST=127.0.0.1 tem que ser barrado do mesmo jeito. Fica no
+    # lifespan, e nao so em run(), para valer tambem quando o servidor e
+    # iniciado pela CLI do uvicorn, que nao passa por run().
+    bind = descobrir_bind(settings.shogun_host)
+    settings.validar_exposicao(bind)
+    logger.info("Bind efetivo: %s", bind)
 
     provider = get_llm_provider()
     logger.info("Provedor de LLM ativo: %s", provider.nome)
@@ -33,7 +37,7 @@ async def lifespan(_: FastAPI):
         logger.warning(
             "SHOGUN_AUTH_TOKEN vazio - servidor SEM autenticacao, escutando "
             "apenas em %s.",
-            settings.shogun_host,
+            bind.host,
         )
     yield
 

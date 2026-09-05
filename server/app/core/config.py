@@ -2,9 +2,16 @@
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from app.core.rede import BindEfetivo
+
 # Enderecos que so o proprio computador alcanca. Escutar em qualquer coisa fora
 # desta lista significa aceitar conexao de outra maquina.
 HOSTS_LOCAIS = frozenset({"127.0.0.1", "localhost", "::1"})
+
+
+def host_exposto(host: str) -> bool:
+    """True quando `host` aceita conexao vinda de outra maquina."""
+    return host.strip().lower() not in HOSTS_LOCAIS
 
 
 class ConfiguracaoInseguraError(RuntimeError):
@@ -77,23 +84,35 @@ class Settings(BaseSettings):
 
     @property
     def exposto_na_rede(self) -> bool:
-        """True quando o bind aceita conexao de outra maquina."""
-        return self.shogun_host.strip().lower() not in HOSTS_LOCAIS
+        """True quando `SHOGUN_HOST` aceita conexao de outra maquina.
 
-    def validar_exposicao(self) -> None:
+        Atalho para o caso comum. Quem valida o startup usa `validar_exposicao`
+        com o bind real, que pode divergir desta variavel.
+        """
+        return host_exposto(self.shogun_host)
+
+    def validar_exposicao(self, bind: "BindEfetivo | None" = None) -> None:
         """Recusa a combinacao "aberto para a rede" + "sem autenticacao".
 
-        Em `127.0.0.1` o token continua opcional: so o proprio computador
-        alcanca o servidor, e exigir token atrapalharia o desenvolvimento
-        local sem proteger nada.
+        `bind` e o host que o servidor realmente vai escutar, com a origem da
+        informacao (ver `app.core.rede.descobrir_bind`). Sem ele, cai para
+        `SHOGUN_HOST` — util em checagem estatica de configuracao, fora de um
+        servidor rodando.
+
+        Em bind local o token continua opcional: so o proprio computador
+        alcanca o servidor, e exigir token ali atrapalharia o desenvolvimento
+        sem proteger nada.
         """
-        if self.exposto_na_rede and not self.shogun_auth_token:
+        if bind is None:
+            bind = BindEfetivo(self.shogun_host, "SHOGUN_HOST")
+
+        if host_exposto(bind.host) and not self.shogun_auth_token:
             raise ConfiguracaoInseguraError(
-                f"SHOGUN_HOST={self.shogun_host} aceita conexoes de outras "
-                "maquinas, mas SHOGUN_AUTH_TOKEN esta vazio - o servidor "
-                "ficaria aberto a quem alcancasse a porta. Defina "
-                "SHOGUN_AUTH_TOKEN, ou use SHOGUN_HOST=127.0.0.1 para "
-                "desenvolvimento local sem token."
+                f"o servidor vai escutar em {bind.host}, vindo de "
+                f"{bind.origem}, o que aceita conexoes de outras maquinas - "
+                "mas SHOGUN_AUTH_TOKEN esta vazio, entao ele ficaria aberto a "
+                "quem alcancasse a porta. Defina SHOGUN_AUTH_TOKEN, ou escute "
+                "em 127.0.0.1 para desenvolvimento local sem token."
             )
 
 
