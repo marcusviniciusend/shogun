@@ -5,7 +5,7 @@
  * telas nao precisam distinguir fetch que rejeitou de status HTTP de erro.
  */
 
-import { CommandRequest, CommandResponse } from "./contracts";
+import type { CommandRequest, CommandResponse } from "./contracts";
 import { ConfigServidor, normalizarUrl } from "./storage";
 
 /** O LLM pode demorar (modelo local frio, fallback); folga sobre os 30s do servidor. */
