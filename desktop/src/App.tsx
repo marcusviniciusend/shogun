@@ -4,6 +4,7 @@ import indicadorUrl from "./assets/indicador-shogun.webm";
 import { Chat } from "./components/Chat";
 import { Configuracoes } from "./components/Configuracoes";
 import { PainelAgentes } from "./components/PainelAgentes";
+import { Sidebar, type View } from "./components/Sidebar";
 import { Splash } from "./components/Splash";
 import {
   StatusServidor,
@@ -40,7 +41,9 @@ function mensagemServidorFora(): string {
 export default function App() {
   const [config, setConfig] = useState<Config>(CONFIG_DEFAULT);
   const [sessionId, setSessionId] = useState<string | null>(null);
-  const [telaConfig, setTelaConfig] = useState(false);
+  const [view, setView] = useState<View>("chat");
+  // Chat e agentes lado a lado — toggle proprio na sidebar (ver Sidebar.tsx).
+  const [dividido, setDividido] = useState(false);
 
   const [mensagens, setMensagens] = useState<MensagemChat[]>([]);
   const [chatCarregando, setChatCarregando] = useState(false);
@@ -159,8 +162,27 @@ export default function App() {
     await checarSaude(nova);
   }
 
+  const mostraChat = view === "chat" || (dividido && view !== "config");
+  const mostraAgentes = view === "agentes" || (dividido && view !== "config");
+
   return (
     <div className="app">
+      <Sidebar
+        view={view}
+        dividido={dividido}
+        onNovaConversa={() => {
+          void novaConversa();
+          setView(dividido ? view : "chat");
+        }}
+        onVer={(v) => {
+          setView(v);
+          if (v !== "config") setDividido(false);
+        }}
+        onAlternarDividido={() => {
+          setDividido((d) => !d);
+          if (view === "config") setView("chat");
+        }}
+      />
       <header className="app-cabecalho">
         <h1>
           <span className="marca-kanji-wrap" aria-hidden>
@@ -180,13 +202,6 @@ export default function App() {
           </span>
           <span className="marca-nome">Shogun</span>
         </h1>
-        <button
-          type="button"
-          className="botao-secundario"
-          onClick={() => setTelaConfig((v) => !v)}
-        >
-          {telaConfig ? "Dashboard" : "Configurações"}
-        </button>
       </header>
 
       <StatusServidor
@@ -195,28 +210,31 @@ export default function App() {
         onVerificar={() => void checarSaude(config)}
       />
 
-      {telaConfig ? (
+      {view === "config" ? (
         <Configuracoes
           config={config}
           onSalvar={salvar}
-          onFechar={() => setTelaConfig(false)}
+          onFechar={() => setView("chat")}
         />
       ) : (
-        <main className="dashboard">
-          <Chat
-            mensagens={mensagens}
-            carregando={chatCarregando}
-            bloqueado={estadoServidor === "inalcancavel"}
-            onEnviar={enviarMensagem}
-            onNovaConversa={novaConversa}
-          />
-          <PainelAgentes
-            acoes={acoesAgentes}
-            resumo={resumoAgentes}
-            erro={erroAgentes}
-            carregando={agentesCarregando}
-            onAtualizar={atualizarAgentes}
-          />
+        <main className={`dashboard${dividido ? " dividido" : ""}`}>
+          {mostraChat && (
+            <Chat
+              mensagens={mensagens}
+              carregando={chatCarregando}
+              bloqueado={estadoServidor === "inalcancavel"}
+              onEnviar={enviarMensagem}
+            />
+          )}
+          {mostraAgentes && (
+            <PainelAgentes
+              acoes={acoesAgentes}
+              resumo={resumoAgentes}
+              erro={erroAgentes}
+              carregando={agentesCarregando}
+              onAtualizar={atualizarAgentes}
+            />
+          )}
         </main>
       )}
 

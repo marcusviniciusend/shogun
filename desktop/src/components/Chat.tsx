@@ -8,7 +8,6 @@ interface Props {
   /** Servidor fora do ar: nao adianta deixar mandar. */
   bloqueado?: boolean;
   onEnviar: (texto: string) => void;
-  onNovaConversa: () => void;
 }
 
 export function Chat({
@@ -16,7 +15,6 @@ export function Chat({
   carregando,
   bloqueado = false,
   onEnviar,
-  onNovaConversa,
 }: Props) {
   const [texto, setTexto] = useState("");
   const fimRef = useRef<HTMLDivElement>(null);
@@ -37,15 +35,6 @@ export function Chat({
     <section className="painel chat">
       <header className="painel-cabecalho">
         <h2>Conversa</h2>
-        <button
-          type="button"
-          className="botao-secundario"
-          onClick={onNovaConversa}
-          disabled={carregando}
-          title="Descarta a sessao atual e comeca uma conversa nova"
-        >
-          Nova conversa
-        </button>
       </header>
 
       <div className="chat-historico">
