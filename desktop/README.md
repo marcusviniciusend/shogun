@@ -58,8 +58,9 @@ fora deste repositório):
 
 - **splash de abertura** — o kanji é escrito traço a traço, sustentado e
   desfeito (~5,6s); um clique pula. `src/components/Splash.tsx`;
-- **indicador de processamento** — enquanto um `/comando` está em voo, o
-  kanji estático do wordmark dá lugar à versão condensada em loop (2,2s).
+- **wordmark vivo** — o kanji do cabeçalho é a versão condensada sendo
+  escrita em loop contínuo (2,2s), o tempo todo, não só durante o
+  processamento.
 
 Com `prefers-reduced-motion`, nem o splash nem os vídeos montam.
 
