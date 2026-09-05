@@ -296,3 +296,34 @@ button:disabled {
     grid-template-rows: 1fr auto;
   }
 }
+
+/* --- Status do servidor ------------------------------------------------- */
+
+.banner-servidor {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  margin: 0 0 1rem;
+  padding: 0.7rem 1rem;
+  border-radius: 8px;
+  border: 1px solid transparent;
+  font-size: 0.9rem;
+}
+
+.banner-servidor.verificando {
+  border-color: #33415580;
+  color: #94a3b8;
+}
+
+.banner-servidor.inalcancavel {
+  border-color: #7f1d1d;
+  background: #7f1d1d26;
+  color: #fca5a5;
+}
+
+.banner-servidor p {
+  margin: 0.25rem 0 0;
+  color: #cbd5e1;
+  font-size: 0.85rem;
+}
