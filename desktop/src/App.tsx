@@ -1,8 +1,10 @@
 import { useEffect, useState } from "react";
 
+import indicadorUrl from "./assets/indicador-shogun.webm";
 import { Chat } from "./components/Chat";
 import { Configuracoes } from "./components/Configuracoes";
 import { PainelAgentes } from "./components/PainelAgentes";
+import { Splash } from "./components/Splash";
 import {
   StatusServidor,
   type EstadoServidor,
@@ -21,6 +23,10 @@ import type { AgentActionWire, MensagemChat } from "./lib/types";
 import "./App.css";
 
 const COMANDO_PENDENCIAS = "ver pendências dos agentes";
+
+const REDUZ_MOVIMENTO = window.matchMedia(
+  "(prefers-reduced-motion: reduce)",
+).matches;
 
 function mensagemDeErro(e: unknown): string {
   return e instanceof ErroComando ? e.message : "Erro inesperado ao falar com o servidor.";
@@ -47,6 +53,10 @@ export default function App() {
   const [estadoServidor, setEstadoServidor] =
     useState<EstadoServidor>("verificando");
   const [motivoServidor, setMotivoServidor] = useState<string | null>(null);
+
+  // Splash roda uma vez por abertura; quem pediu menos movimento nao o ve.
+  const [splashAtivo, setSplashAtivo] = useState(!REDUZ_MOVIMENTO);
+  const pensando = !REDUZ_MOVIMENTO && (chatCarregando || agentesCarregando);
 
   /**
    * Pergunta ao /health se da para falar com o servidor.
@@ -151,11 +161,20 @@ export default function App() {
     <div className="app">
       <header className="app-cabecalho">
         <h1>
-          <span
-            className={`marca-kanji${chatCarregando || agentesCarregando ? " pensando" : ""}`}
-            aria-hidden
-          >
-            将軍
+          <span className="marca-kanji-wrap" aria-hidden>
+            <span className={`marca-kanji${pensando ? " oculto" : ""}`}>
+              将軍
+            </span>
+            {pensando && (
+              <video
+                className="marca-kanji-video"
+                src={indicadorUrl}
+                autoPlay
+                loop
+                muted
+                playsInline
+              />
+            )}
           </span>
           <span className="marca-nome">Shogun</span>
         </h1>
@@ -198,6 +217,8 @@ export default function App() {
           />
         </main>
       )}
+
+      {splashAtivo && <Splash onFim={() => setSplashAtivo(false)} />}
     </div>
   );
 }
