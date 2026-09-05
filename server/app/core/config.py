@@ -69,6 +69,15 @@ class Settings(BaseSettings):
     shogun_host: str = "0.0.0.0"
     shogun_port: int = 8000
 
+    # --- Banco de dados ----------------------------------------------------
+    # Arquivo relativo ao diretorio de onde o servidor e iniciado (server/).
+    # O schema e criado pelo Alembic: `alembic upgrade head`.
+    shogun_database_url: str = "sqlite:///./shogun.db"
+    # Quantas mensagens do historico entram no prompt. Janela por contagem, nao
+    # por orcamento de tokens: o limite precisa caber no menor contexto entre os
+    # provedores (o modelo local), e contar mensagem e previsivel sem tokenizer.
+    shogun_historico_max_mensagens: int = 20
+
     # --- CORS --------------------------------------------------------------
     # Origens permitidas, separadas por virgula. Vazio = CORS desligado, que e
     # o correto para os clientes atuais: desktop (Tauri) e mobile (React

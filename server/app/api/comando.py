@@ -6,17 +6,53 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from starlette.concurrency import run_in_threadpool
 
 from app.core.contracts import AgentAction, CommandRequest, CommandResponse
+from app.core.config import settings
 from app.core.llm import (
     ComandoInterpretado,
     LLMIndisponivelError,
     LLMProvider,
     get_llm_provider,
 )
+from app.core.llm.historico import montar_prompt
+from app.core.persistencia import RepositorioConversas, get_repositorio
 from app.core.pendencias import PendenciasProvider, get_pendencias_provider
 from app.core.security import require_auth
 from app.domain import Pendencia, StatusAgente
 
 logger = logging.getLogger(__name__)
+
+
+def _abrir_conversa(
+    repo: RepositorioConversas, session_id: str | None, texto: str, janela: int
+) -> tuple[str, list[tuple[str, str]]]:
+    """Prepara a conversa para a chamada ao LLM. Devolve `(id, historico)`.
+
+    Junta os tres acessos ao banco desta etapa numa funcao so — a rota paga uma
+    ida a threadpool, nao tres.
+
+    O historico e lido **antes** do INSERT da mensagem nova, senao o comando
+    atual apareceria duas vezes no prompt: uma no bloco de contexto e outra no
+    fim. E o INSERT acontece **antes** da chamada ao modelo, para que um comando
+    que falhe no LLM continue registrado — o passo 5 pode devolver 503, e nesse
+    caso a pergunta do Marcus nao pode sumir do historico.
+    """
+    sessao = repo.obter_ou_criar_sessao(session_id)
+    historico = [
+        (m.role, m.content) for m in repo.historico(sessao.id, limite=janela)
+    ]
+    repo.registrar_usuario(sessao.id, texto)
+    return sessao.id, historico
+
+
+def _fechar_conversa(
+    repo: RepositorioConversas, session_id: str, resposta: str
+) -> None:
+    """Grava a fala do Shogun e marca atividade na sessao (passo 8)."""
+    repo.registrar_assistente(session_id, resposta)
+    sessao = repo.obter_sessao(session_id)
+    if sessao is not None:
+        repo.marcar_atividade(sessao)
+
 
 router = APIRouter(tags=["comando"], dependencies=[Depends(require_auth)])
 
@@ -101,17 +137,30 @@ async def processar_comando(
     comando: CommandRequest,
     llm: LLMProvider = Depends(get_llm_provider),
     pendencias: PendenciasProvider = Depends(get_pendencias_provider),
+    repo: RepositorioConversas = Depends(get_repositorio),
 ) -> CommandResponse:
     """Recebe o texto já transcrito, interpreta a intenção e executa a ação."""
     texto = comando.text.strip()
     if not texto:
+        # Antes de qualquer escrita: comando vazio não abre sessão nem entra no
+        # histórico.
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail="Comando vazio.",
         )
 
+    # SQLAlchemy síncrono na threadpool, como o PendenciasProvider — o event
+    # loop segue livre enquanto o banco responde.
+    session_id, historico = await run_in_threadpool(
+        _abrir_conversa,
+        repo,
+        comando.session_id,
+        texto,
+        settings.shogun_historico_max_mensagens,
+    )
+
     try:
-        intencao = await llm.interpretar_comando(texto)
+        intencao = await llm.interpretar_comando(montar_prompt(historico, texto))
     except LLMIndisponivelError as exc:
         logger.error("LLM indisponível: %s", exc)
         raise HTTPException(
@@ -130,6 +179,8 @@ async def processar_comando(
         acoes.append(acao)
     # "conversar" usa a resposta livre do modelo, sem ação de agente.
 
-    return CommandResponse(
-        session_id=comando.session_id, text=resposta, actions=acoes
-    )
+    await run_in_threadpool(_fechar_conversa, repo, session_id, resposta)
+
+    # `session_id` vem da sessão, não do request: quando o cliente manda nulo,
+    # é aqui que ele descobre qual conversa o servidor abriu.
+    return CommandResponse(session_id=session_id, text=resposta, actions=acoes)

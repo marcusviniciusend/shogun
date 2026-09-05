@@ -2,9 +2,10 @@
 
 **Decisão: SQLite via SQLAlchemy.**
 
-**Nada disto está implementado.** É o desenho do schema que sustenta os passos 3
-e 8 do [fluxo de uma mensagem](DESIGN.md). O servidor hoje não tem persistência
-nenhuma: `session_id` chega no request e volta na resposta sem nunca ser gravado.
+**Implementado.** O schema abaixo existe em `server/app/db/`, com migração
+Alembic, e sustenta os passos 3 e 8 do [fluxo de uma mensagem](DESIGN.md).
+A seção "Divergências da implementação" registra onde o código se afastou deste
+desenho, e por quê.
 
 ## Por que SQLite
 
@@ -46,7 +47,7 @@ pela primeira vez.
 
 | Campo | Tipo | Papel |
 | --- | --- | --- |
-| `id` | TEXT (PK) | o `session_id` do `CommandRequest` — gerado no cliente (passo 2) |
+| `id` | TEXT (PK) | o `session_id` do `CommandRequest` — **gerado no servidor** quando o cliente manda nulo (ver divergências) |
 | `created_at` | TIMESTAMP | quando a sessão começou |
 | `updated_at` | TIMESTAMP | última mensagem; atualizado no passo 8 |
 
@@ -72,6 +73,78 @@ mensagens de uma sessão, em ordem.
 A ordenação é por `id`, não por `created_at`: duas mensagens gravadas no mesmo
 instante não teriam desempate por timestamp, e a ordem user → assistant dentro de
 um comando precisa ser estável.
+
+## Divergências da implementação
+
+O que o código faz diferente do desenho original acima, e o motivo.
+
+### Quem gera o `session_id`: o servidor
+
+O desenho dizia "gerado no cliente (passo 2)", e o
+[DESIGN.md](DESIGN.md) deixava a decisão explicitamente em aberto. Ficou com o
+**servidor**:
+
+- `CommandRequest.session_id` virou `Optional[str]`. Nulo significa "conversa
+  nova";
+- nesse caso o servidor cria a sessão e devolve o id em
+  `CommandResponse.session_id`, que já existia e era só eco do request;
+- o cliente guarda esse id e o reenvia nas próximas mensagens.
+
+Motivo: era a alternativa que o próprio DESIGN.md apontava, e resolve o ponto
+que ele levantava — com o id nascendo no cliente, um cliente pode inventar id de
+sessão alheia. Irrelevante com um usuário só, mas é o que amarra o `user_id`
+quando houver mais de um, e mudar isso depois seria mudança de contrato.
+
+Um id **vindo** do cliente continua sendo aceito e materializado: quem já tem
+uma sessão não perde a conversa, e clientes offline podem gerar o seu.
+
+O id é `uuid4().hex` — 32 caracteres, sem hífen. Cabe folgado no `String(64)`.
+
+### Migrações: Alembic desde o schema inicial
+
+Escolhido em vez de `Base.metadata.create_all()` no startup — exatamente o que a
+seção de portabilidade abaixo recomenda ("adotar Alembic junto com o schema
+inicial, não depois"). `create_all` seria mais simples hoje e cobraria a conta na
+primeira alteração de coluna, que é quando não existe caminho de volta.
+
+- `server/alembic/`, com a revisão inicial `de5d29372cf2`;
+- a URL **não** fica no `alembic.ini`: `alembic/env.py` lê
+  `SHOGUN_DATABASE_URL`, a mesma variável do servidor. Duas fontes de verdade
+  para o endereço do banco é como se migra um banco e se roda contra outro;
+- `render_as_batch` ligado no SQLite: ele não faz `ALTER TABLE` completo, e sem
+  isso a primeira migração que altere coluna falha;
+- o servidor **não** roda migração no startup. Subir e migrar são operações
+  diferentes: `alembic upgrade head` é passo explícito, documentado no
+  `server/README.md`.
+
+### Timestamps: UTC sem `tzinfo`
+
+`agora_utc()` devolve UTC **naive**. O SQLite não tem tipo de data nativo:
+guarda texto e devolve `datetime` naive, sempre. Gravar valores aware faria todo
+valor lido do banco ser naive e todo valor novo ser aware — e comparar os dois
+levanta `TypeError`. Um único formato interno elimina a classe inteira de bug.
+
+O que a seção de portabilidade exige continua valendo: **os valores são UTC**.
+Na migração para Postgres, as colunas viram `timestamptz` e os valores existentes
+são interpretados como UTC — acrescentar isso ao passo 2 do checklist.
+
+### Acesso síncrono
+
+`RepositorioConversas` é síncrono, e a rota o executa em threadpool
+(`run_in_threadpool`), como já era feito com `PendenciasProvider`. O SQLAlchemy
+async traria `aiosqlite` e um estilo de código diferente do resto do servidor
+para ganhar concorrência que o SQLite serializa de qualquer forma — um escritor
+por vez.
+
+### Janela de histórico: por contagem
+
+`SHOGUN_HISTORICO_MAX_MENSAGENS` (default 20). O DESIGN.md deixava em aberto
+"janela fixa vs. orçamento de tokens": ficou contagem, porque o limite precisa
+caber no menor contexto entre os provedores (o modelo local) e contar mensagem é
+previsível sem tokenizer. `messages.tokens` continua fora do schema pelo mesmo
+motivo.
+
+---
 
 ### Campos deliberadamente fora
 
@@ -148,7 +221,8 @@ Roteiro de alto nível. **Não executar agora.**
    de backup. Definir se é serviço gerenciado ou container próprio.
 2. **Migrar o schema** — rodar as migrações Alembic contra o banco novo e
    conferir o resultado contra o schema acima (tipos, constraints, o índice
-   `(session_id, id)`).
+   `(session_id, id)`). Trocar `DateTime` por `timestamptz` nas colunas de data:
+   os valores gravados são UTC naive, e é aqui que passam a carregar fuso.
 3. **Migrar os dados existentes** — exportar `sessions` e `messages` do arquivo
    SQLite e carregar no Postgres, preservando os `id` de `messages` (a ordenação
    canônica depende deles). Conferir contagem por tabela e a mensagem mais
