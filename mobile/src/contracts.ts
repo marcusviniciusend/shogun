@@ -1,31 +1,16 @@
 /**
- * Tipos do fio da API do Shogun (`POST /comando`).
+ * Contratos do fio da API do Shogun (`POST /comando`).
  *
- * Fonte da verdade: `shared/python/__init__.py` — o servidor serializa os
- * modelos Pydantic em snake_case, entao e snake_case que trafega no JSON.
- * (`shared/ts/index.ts` descreve os mesmos campos em camelCase; enquanto a
- * divergencia nao for resolvida no shared, o cliente segue o formato real.)
+ * Nao sao declarados aqui: vem de `shared/ts`, que espelha os modelos Pydantic
+ * do servidor. Este arquivo existe so para o resto do app importar de um lugar
+ * curto, sem repetir o caminho relativo em cada tela.
+ *
+ * O import e relativo e `import type` de proposito — ver "Como os clientes
+ * consomem estes tipos" em `shared/README.md`.
  */
 
-export interface CommandRequest {
-  /** Nulo na primeira mensagem: o servidor cria a sessao e devolve o id. */
-  session_id?: string | null;
-  /** Texto ja transcrito do comando. */
-  text: string;
-  /** Origem do comando. */
-  client: "desktop" | "mobile";
-}
-
-export interface AgentAction {
-  agent: string;
-  status: "ok" | "error";
-  detail?: string | null;
-}
-
-export interface CommandResponse {
-  /** Sempre preenchido — inclusive quando o request veio sem id. */
-  session_id: string;
-  /** Texto a ser exibido e falado ao usuario. */
-  text: string;
-  actions: AgentAction[];
-}
+export type {
+  AgentAction,
+  CommandRequest,
+  CommandResponse,
+} from "../../shared/ts";

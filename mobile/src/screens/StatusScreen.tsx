@@ -18,7 +18,7 @@ import {
 
 import { ApiError, enviarComando } from "../api";
 import { Aviso } from "../components/Aviso";
-import { AgentAction } from "../contracts";
+import type { AgentAction } from "../contracts";
 import { carregarConfig, carregarSessao, salvarSessao } from "../storage";
 import { cores, espacamento } from "../theme";
 
