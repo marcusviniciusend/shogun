@@ -1,22 +1,75 @@
 # desktop
 
-Aplicativo desktop do Shogun — [Tauri](https://tauri.app) (Rust) com frontend em JS/TS.
+Aplicativo desktop do Shogun — [Tauri 2](https://tauri.app) (Rust) com frontend
+em React + TypeScript (Vite).
 
-Responsabilidades:
-- captura de áudio e hotkey global para acionar o assistente;
-- interface (overlay/HUD) para exibir a conversa;
-- reprodução da resposta em voz;
-- comunicação com o `server/` via WebSocket.
+Responsabilidades (visão completa; nem tudo existe ainda):
+- captura de áudio e hotkey global para acionar o assistente (a construir);
+- interface para conversar com o `server/` e acompanhar os agentes (**feito**);
+- reprodução da resposta em voz (a construir);
+- comunicação com o `server/` — hoje via `POST /comando`; WebSocket depois.
 
-## Setup
+## O que o scaffold atual faz
 
-Ainda não inicializado. Para criar o projeto:
+Dashboard com três áreas:
+
+- **Conversa** — histórico usuário/Shogun, campo de texto e envio ao
+  `POST /comando`. O `session_id` devolvido pelo servidor é persistido
+  localmente e reenviado nas próximas mensagens; "Nova conversa" descarta a
+  sessão. Enquanto o servidor pensa, aparece um estado de carregamento (a
+  primeira resposta pode demorar, especialmente com Ollama frio).
+- **Agentes** — painel de status alimentado pela ação `consultar_pendencias`.
+  O refresh é **manual** (botão "Atualizar"), que envia o comando fixo
+  "ver pendências dos agentes". Escolhemos manual em vez de polling porque
+  cada consulta passa pelo LLM: um polling periódico gastaria chamadas sem
+  ninguém olhando. Quando existir um endpoint direto de pendências, vale
+  revisitar.
+- **Configurações** — URL do servidor (default `http://localhost:8000`,
+  editável para um IP Tailscale) e Bearer token (`SHOGUN_AUTH_TOKEN`). Nada é
+  hardcoded: os valores ficam num store local do Tauri
+  (`tauri-plugin-store`, arquivo `shogun.json` no diretório de dados do app),
+  junto com o `session_id` corrente.
+
+Erros são exibidos ao usuário com mensagem específica: servidor fora do ar,
+token recusado (401/403) e provedor de LLM indisponível (503).
+
+As chamadas HTTP saem pelo `tauri-plugin-http` (fetch via Rust), não pelo
+fetch do webview — assim não há CORS e o servidor não precisa de
+`SHOGUN_ALLOWED_ORIGINS`, seja em localhost ou via Tailscale.
+
+Nota sobre contratos: `shared/ts/index.ts` declara os campos em camelCase
+(`sessionId`), mas o JSON real do servidor (Pydantic, sem alias) é snake_case
+(`session_id`). Até o contrato compartilhado ser alinhado, o desktop usa tipos
+locais em `src/lib/types.ts` que espelham o fio de verdade.
+
+## Estrutura
+
+```
+src/
+├── App.tsx               # layout do dashboard e estado principal
+├── components/
+│   ├── Chat.tsx          # histórico + campo de comando
+│   ├── PainelAgentes.tsx # status dos agentes (refresh manual)
+│   └── Configuracoes.tsx # URL do servidor + token
+└── lib/
+    ├── api.ts            # POST /comando + tradução de erros
+    ├── config.ts         # persistência local (tauri-plugin-store)
+    └── types.ts          # tipos do fio do /comando
+src-tauri/                # shell Rust (plugins http e store, sem comando custom)
+```
+
+## Rodando
+
+Pré-requisitos: Node.js 20+, Rust (rustup) e as
+[dependências de sistema do Tauri](https://tauri.app/start/prerequisites/).
 
 ```bash
-npm create tauri-app@latest .
+cd desktop
 npm install
 npm run tauri dev
 ```
 
-Pré-requisitos: Node.js 20+, Rust (rustup) e as
-[dependências de sistema do Tauri](https://tauri.app/start/prerequisites/).
+Suba o `server/` antes (veja `server/README.md`) e aponte a URL e o token na
+tela de configurações do app.
+
+Build de distribuição: `npm run tauri build`.
