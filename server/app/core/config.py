@@ -2,6 +2,18 @@
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+# Enderecos que so o proprio computador alcanca. Escutar em qualquer coisa fora
+# desta lista significa aceitar conexao de outra maquina.
+HOSTS_LOCAIS = frozenset({"127.0.0.1", "localhost", "::1"})
+
+
+class ConfiguracaoInseguraError(RuntimeError):
+    """Configuracao que exporia o servidor sem autenticacao.
+
+    Levantada antes de o servidor comecar a escutar — e melhor nao subir do que
+    subir aberto.
+    """
+
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", env_prefix="", extra="ignore")
@@ -44,8 +56,45 @@ class Settings(BaseSettings):
     shogun_auth_token: str = ""
 
     # --- Servidor ----------------------------------------------------------
+    # `0.0.0.0` escuta em todas as interfaces — necessario para os clientes
+    # remotos (mobile via Tailscale) alcancarem o servidor. Para restringir a
+    # maquina local, use SHOGUN_HOST=127.0.0.1.
     shogun_host: str = "0.0.0.0"
     shogun_port: int = 8000
+
+    # --- CORS --------------------------------------------------------------
+    # Origens permitidas, separadas por virgula. Vazio = CORS desligado, que e
+    # o correto para os clientes atuais: desktop (Tauri) e mobile (React
+    # Native) falam HTTP direto, sem origem de navegador, e nao disparam
+    # preflight. Preencha so quando houver um cliente rodando em navegador
+    # — ex.: http://100.101.102.103:8000 (IP Tailscale desta maquina).
+    shogun_allowed_origins: str = ""
+
+    @property
+    def allowed_origins(self) -> list[str]:
+        """`shogun_allowed_origins` como lista, sem entradas vazias."""
+        return [o.strip() for o in self.shogun_allowed_origins.split(",") if o.strip()]
+
+    @property
+    def exposto_na_rede(self) -> bool:
+        """True quando o bind aceita conexao de outra maquina."""
+        return self.shogun_host.strip().lower() not in HOSTS_LOCAIS
+
+    def validar_exposicao(self) -> None:
+        """Recusa a combinacao "aberto para a rede" + "sem autenticacao".
+
+        Em `127.0.0.1` o token continua opcional: so o proprio computador
+        alcanca o servidor, e exigir token atrapalharia o desenvolvimento
+        local sem proteger nada.
+        """
+        if self.exposto_na_rede and not self.shogun_auth_token:
+            raise ConfiguracaoInseguraError(
+                f"SHOGUN_HOST={self.shogun_host} aceita conexoes de outras "
+                "maquinas, mas SHOGUN_AUTH_TOKEN esta vazio - o servidor "
+                "ficaria aberto a quem alcancasse a porta. Defina "
+                "SHOGUN_AUTH_TOKEN, ou use SHOGUN_HOST=127.0.0.1 para "
+                "desenvolvimento local sem token."
+            )
 
 
 settings = Settings()
