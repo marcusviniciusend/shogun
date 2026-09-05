@@ -1,5 +1,6 @@
 """Fixtures compartilhadas — nenhum teste toca em API real."""
 
+import os
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
@@ -8,6 +9,12 @@ import pytest
 
 # O servidor ainda não é empacotado; torna `app` importável a partir de server/.
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+# `settings` é lido no import de app.main, e o lifespan recusa subir exposto sem
+# token. O TestClient não abre porta nenhuma, mas passa pelo lifespan — então os
+# testes rodam como um desenvolvimento local: bind em 127.0.0.1. Precisa vir
+# antes do import de app.core.config.
+os.environ.setdefault("SHOGUN_HOST", "127.0.0.1")
 
 from app.core.config import Settings  # noqa: E402
 from app.core.llm import ComandoInterpretado, LLMIndisponivelError  # noqa: E402
