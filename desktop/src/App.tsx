@@ -150,7 +150,12 @@ export default function App() {
   return (
     <div className="app">
       <header className="app-cabecalho">
-        <h1>Shogun</h1>
+        <h1>
+          <span className="marca-kanji" aria-hidden>
+            将軍
+          </span>
+          Shogun
+        </h1>
         <button
           type="button"
           className="botao-secundario"

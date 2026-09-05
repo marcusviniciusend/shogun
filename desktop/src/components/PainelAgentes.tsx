@@ -45,7 +45,7 @@ export function PainelAgentes({ acoes, resumo, erro, carregando, onAtualizar }: 
           {acoes.map((a, i) => (
             <li key={i} className={`agente ${a.status}`}>
               <span className="agente-status" aria-hidden>
-                {a.status === "ok" ? "●" : "✕"}
+                ●
               </span>
               <div>
                 <strong>{a.agent}</strong>
