@@ -64,6 +64,14 @@ fora deste repositório):
 
 Com `prefers-reduced-motion`, nem o splash nem os vídeos montam.
 
+A navegação vive numa barra lateral fina à esquerda (só ícones; expande no
+hover ou foco): nova conversa, Conversa, Agentes, visualização dividida e
+Configurações. Por padrão cada view ocupa a tela sozinha; o modo dividido
+(chat + agentes lado a lado) é um toggle com ícone próprio na sidebar —
+preferido a uma opção nas configurações por ficar visível, custar um
+clique e mostrar o estado ativo no próprio ícone. Clicar em Conversa ou
+Agentes com o dividido ativo volta para a view única daquele item.
+
 Os traços do kanji vêm do projeto [KanjiVG](http://kanjivg.tagaini.net)
 (Ulrich Apel), licença CC BY-SA 3.0 — atribuição obrigatória mantida aqui.
 
