@@ -420,3 +420,27 @@ pytest            # a partir de server/
 
 Nenhum teste chama API real: os provedores têm o cliente HTTP mockado e a rota usa
 `app.dependency_overrides`.
+
+O banco também não é o real — as fixtures usam SQLite **em memória**, criado com
+`Base.metadata.create_all`. Por isso o CI não roda `alembic upgrade head`: a
+migração é exercitada quando alguém sobe o servidor, não pela suíte. (O
+contraponto é honesto: um erro só na migração, e não nos modelos, passaria pela
+suíte. Se isso acontecer alguma vez, o remédio é um teste que aplique as
+migrações num banco temporário e compare o schema com `Base.metadata`.)
+
+Duas coisas que a suíte usa da máquina, e valem saber antes de mexer nelas:
+
+- `tests/test_config_rede.py` **sobe o uvicorn como processo** (duas vezes) e
+  abre uma porta em `127.0.0.1`. É de propósito: a validação do bind lê um frame
+  interno do uvicorn, e só um servidor de verdade prova que isso continua
+  funcionando na versão instalada. São ~5s dos ~6s da suíte;
+- o `conftest` fixa `SHOGUN_HOST=127.0.0.1` antes de importar a configuração,
+  senão o lifespan recusaria subir no `TestClient`.
+
+Nenhum dos dois precisa de rede externa nem de credencial — o CI roda sem
+segredo nenhum.
+
+### CI
+
+`.github/workflows/tests.yml` roda esta mesma suíte a cada push e a cada PR para
+`dev` ou `main`, em Python 3.11 (o piso declarado) e 3.13.
