@@ -1,24 +1,23 @@
 /*
- * Sumi e washi: tinta sobre papel escuro.
+ * Washi e sumi: tinta escura sobre papel claro.
  *
  * A identidade do app esta na tipografia como voz — o Shogun fala em serifa
  * (Zen Old Mincho), o usuario e os controles falam em gotico (Zen Kaku
  * Gothic New) — e no espaco negativo no lugar de caixas e bordas.
  *
- * Paleta fechada em quatro tons. O bengara (oxido de ferro) e o UNICO acento,
- * reservado a erro e a acao primaria; sucesso e ausencia de erro, nao verde.
+ * Paleta fechada em quatro tons (opcao "A1 washi cru"). O bengara e acento
+ * RARO: aparece apenas em erro e atencao critica — nunca decorativamente.
  */
 
 :root {
-  color-scheme: dark;
+  color-scheme: light;
 
-  --sumi: #1a1a17; /* carvao quente, nao preto puro */
-  --sumi-2: #201f1b; /* meio-tom para superficies raras (input de senha etc.) */
-  --washi: #e8e4da; /* papel — texto principal */
-  --hai: #8c877c; /* cinza-cinza — texto secundario */
-  --bengara: #b0523d; /* acento unico */
-  --linha: rgba(232, 228, 218, 0.14); /* fio de separacao */
-  --linha-suave: rgba(232, 228, 218, 0.07);
+  --papel: #ede6d4; /* washi cru — fundo */
+  --tinta: #211e1a; /* sumi — texto e cor do pincel */
+  --hai: #7a7264; /* cinza-cinza — texto secundario */
+  --bengara: #a63d2f; /* SO erro/atencao critica */
+  --linha: rgba(33, 30, 26, 0.28); /* fio de separacao */
+  --linha-suave: rgba(33, 30, 26, 0.12);
 
   --serif: "Zen Old Mincho", "Iowan Old Style", Georgia, serif;
   --sans: "Zen Kaku Gothic New", "Segoe UI", system-ui, sans-serif;
@@ -35,8 +34,8 @@
 
 body {
   margin: 0;
-  background: var(--sumi);
-  color: var(--washi);
+  background: var(--papel);
+  color: var(--tinta);
 }
 
 #root,
@@ -47,8 +46,8 @@ body {
 }
 
 ::selection {
-  background: var(--bengara);
-  color: var(--washi);
+  background: var(--tinta);
+  color: var(--papel);
 }
 
 /* ---------------------------------------------------------------- cabecalho */
@@ -73,7 +72,7 @@ body {
 
 .marca-kanji {
   font-weight: 400;
-  color: var(--bengara);
+  color: var(--tinta);
   font-size: 1.15rem;
 }
 
@@ -132,7 +131,7 @@ body {
   position: fixed;
   inset: 0;
   z-index: 10;
-  background: var(--sumi);
+  background: var(--papel);
   display: grid;
   place-items: center;
   cursor: pointer;
@@ -258,7 +257,7 @@ body {
 .chat-mensagem.usuario {
   align-self: flex-end;
   text-align: right;
-  font-weight: 300;
+  font-weight: 400;
   color: var(--hai);
 }
 
@@ -291,13 +290,13 @@ body {
 }
 
 .chat-entrada:focus-within {
-  border-bottom-color: var(--bengara);
+  border-bottom-color: var(--tinta);
 }
 
 .chat-entrada input {
   flex: 1;
   font: inherit;
-  color: var(--washi);
+  color: var(--tinta);
   background: transparent;
   border: none;
   padding: 0.55rem 0;
@@ -392,7 +391,7 @@ body {
 .config-form input {
   font: inherit;
   font-weight: 400;
-  color: var(--washi);
+  color: var(--tinta);
   background: transparent;
   border: none;
   border-bottom: 1px solid var(--linha);
@@ -402,7 +401,7 @@ body {
 
 .config-form input:focus {
   outline: none;
-  border-bottom-color: var(--bengara);
+  border-bottom-color: var(--tinta);
 }
 
 .config-form small {
@@ -432,7 +431,7 @@ button {
   border: none;
   background: none;
   padding: 0.35rem 0;
-  color: var(--bengara);
+  color: var(--tinta);
   cursor: pointer;
 }
 
@@ -453,11 +452,11 @@ button:disabled {
 }
 
 .botao-secundario:hover:not(:disabled) {
-  color: var(--washi);
+  color: var(--tinta);
 }
 
 :focus-visible {
-  outline: 1px solid var(--bengara);
+  outline: 1px solid var(--tinta);
   outline-offset: 3px;
 }
 
