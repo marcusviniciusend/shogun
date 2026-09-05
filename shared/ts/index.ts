@@ -39,5 +39,10 @@ export interface CommandResponse {
 export interface AgentAction {
   agent: string;
   status: "ok" | "error";
-  detail?: string;
+  /**
+   * `null` quando a acao nao tem detalhe — nao ausente. O Pydantic declara
+   * `detail: str | None = None` e serializa a chave mesmo vazia, o que o
+   * OpenAPI do servidor confirma: `detail: ["string", "null"]`.
+   */
+  detail?: string | null;
 }
