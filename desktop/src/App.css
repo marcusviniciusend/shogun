@@ -1,0 +1,298 @@
+:root {
+  color-scheme: light dark;
+  --fundo: #f5f5f4;
+  --painel: #ffffff;
+  --borda: #d6d3d1;
+  --texto: #1c1917;
+  --texto-suave: #78716c;
+  --acento: #b91c1c;
+  --acento-texto: #ffffff;
+  --erro-fundo: #fef2f2;
+  --erro-borda: #fca5a5;
+  --erro-texto: #b91c1c;
+  --ok: #15803d;
+
+  font-family: "Segoe UI", system-ui, Avenir, Helvetica, Arial, sans-serif;
+  font-size: 15px;
+  line-height: 1.5;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --fundo: #1c1917;
+    --painel: #292524;
+    --borda: #44403c;
+    --texto: #fafaf9;
+    --texto-suave: #a8a29e;
+    --acento: #dc2626;
+    --erro-fundo: #3f1d1d;
+    --erro-borda: #7f1d1d;
+    --erro-texto: #fca5a5;
+    --ok: #4ade80;
+  }
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--fundo);
+  color: var(--texto);
+}
+
+#root,
+.app {
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.app-cabecalho {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.6rem 1rem;
+  border-bottom: 1px solid var(--borda);
+  background: var(--painel);
+}
+
+.app-cabecalho h1 {
+  margin: 0;
+  font-size: 1.15rem;
+}
+
+.dashboard {
+  flex: 1;
+  display: grid;
+  grid-template-columns: 1fr 340px;
+  gap: 1rem;
+  padding: 1rem;
+  min-height: 0;
+}
+
+.painel {
+  background: var(--painel);
+  border: 1px solid var(--borda);
+  border-radius: 10px;
+  padding: 1rem;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: auto;
+}
+
+.painel-cabecalho {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 0.75rem;
+}
+
+.painel-cabecalho h2 {
+  margin: 0;
+  font-size: 1rem;
+}
+
+/* --- chat --- */
+
+.chat-historico {
+  flex: 1;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  padding-right: 0.25rem;
+}
+
+.chat-vazio,
+.agentes-vazio {
+  color: var(--texto-suave);
+  font-style: italic;
+}
+
+.chat-mensagem {
+  max-width: 85%;
+  padding: 0.5rem 0.75rem;
+  border-radius: 10px;
+  border: 1px solid var(--borda);
+}
+
+.chat-mensagem p {
+  margin: 0.15rem 0 0;
+  white-space: pre-wrap;
+}
+
+.chat-mensagem.usuario {
+  align-self: flex-end;
+  background: var(--acento);
+  border-color: var(--acento);
+  color: var(--acento-texto);
+}
+
+.chat-mensagem.shogun {
+  align-self: flex-start;
+}
+
+.chat-mensagem.erro {
+  background: var(--erro-fundo);
+  border-color: var(--erro-borda);
+  color: var(--erro-texto);
+}
+
+.chat-mensagem.pensando {
+  color: var(--texto-suave);
+  font-style: italic;
+}
+
+.chat-autor {
+  font-size: 0.72rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  opacity: 0.75;
+}
+
+.chat-entrada {
+  display: flex;
+  gap: 0.5rem;
+  margin-top: 0.75rem;
+}
+
+.chat-entrada input {
+  flex: 1;
+}
+
+/* --- agentes --- */
+
+.agentes-lista {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.agente {
+  display: flex;
+  gap: 0.5rem;
+  align-items: baseline;
+  border: 1px solid var(--borda);
+  border-radius: 8px;
+  padding: 0.5rem 0.65rem;
+}
+
+.agente p {
+  margin: 0.1rem 0 0;
+  color: var(--texto-suave);
+  font-size: 0.85rem;
+}
+
+.agente-status {
+  font-size: 0.8rem;
+}
+
+.agente.ok .agente-status {
+  color: var(--ok);
+}
+
+.agente.error .agente-status {
+  color: var(--erro-texto);
+}
+
+.agentes-resumo {
+  margin-top: 0.75rem;
+  padding-top: 0.75rem;
+  border-top: 1px solid var(--borda);
+  color: var(--texto-suave);
+  font-size: 0.85rem;
+}
+
+.aviso-erro {
+  background: var(--erro-fundo);
+  border: 1px solid var(--erro-borda);
+  color: var(--erro-texto);
+  border-radius: 8px;
+  padding: 0.5rem 0.75rem;
+}
+
+/* --- configuracoes --- */
+
+.configuracoes {
+  margin: 1rem;
+  max-width: 560px;
+}
+
+.config-form {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.config-form label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  font-weight: 600;
+}
+
+.config-form small {
+  font-weight: 400;
+  color: var(--texto-suave);
+}
+
+.config-acoes {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.config-salvo {
+  color: var(--ok);
+}
+
+/* --- controles --- */
+
+input {
+  font: inherit;
+  color: inherit;
+  background: var(--fundo);
+  border: 1px solid var(--borda);
+  border-radius: 8px;
+  padding: 0.5rem 0.75rem;
+}
+
+input:focus {
+  outline: 2px solid var(--acento);
+  outline-offset: -1px;
+}
+
+button {
+  font: inherit;
+  border: none;
+  border-radius: 8px;
+  padding: 0.5rem 0.9rem;
+  background: var(--acento);
+  color: var(--acento-texto);
+  cursor: pointer;
+}
+
+button:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+.botao-secundario {
+  background: transparent;
+  color: inherit;
+  border: 1px solid var(--borda);
+}
+
+@media (max-width: 820px) {
+  .dashboard {
+    grid-template-columns: 1fr;
+    grid-template-rows: 1fr auto;
+  }
+}
