@@ -5,11 +5,19 @@ import type { MensagemChat } from "../lib/types";
 interface Props {
   mensagens: MensagemChat[];
   carregando: boolean;
+  /** Servidor fora do ar: nao adianta deixar mandar. */
+  bloqueado?: boolean;
   onEnviar: (texto: string) => void;
   onNovaConversa: () => void;
 }
 
-export function Chat({ mensagens, carregando, onEnviar, onNovaConversa }: Props) {
+export function Chat({
+  mensagens,
+  carregando,
+  bloqueado = false,
+  onEnviar,
+  onNovaConversa,
+}: Props) {
   const [texto, setTexto] = useState("");
   const fimRef = useRef<HTMLDivElement>(null);
 
@@ -20,7 +28,7 @@ export function Chat({ mensagens, carregando, onEnviar, onNovaConversa }: Props)
   function enviar(e: React.FormEvent) {
     e.preventDefault();
     const limpo = texto.trim();
-    if (!limpo || carregando) return;
+    if (!limpo || carregando || bloqueado) return;
     setTexto("");
     onEnviar(limpo);
   }
@@ -69,10 +77,12 @@ export function Chat({ mensagens, carregando, onEnviar, onNovaConversa }: Props)
           type="text"
           value={texto}
           onChange={(e) => setTexto(e.target.value)}
-          placeholder="Digite um comando…"
-          disabled={carregando}
+          placeholder={
+            bloqueado ? "Servidor não alcançado…" : "Digite um comando…"
+          }
+          disabled={carregando || bloqueado}
         />
-        <button type="submit" disabled={carregando || !texto.trim()}>
+        <button type="submit" disabled={carregando || bloqueado || !texto.trim()}>
           {carregando ? "Aguardando…" : "Enviar"}
         </button>
       </form>

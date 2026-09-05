@@ -3,7 +3,11 @@ import { useEffect, useState } from "react";
 import { Chat } from "./components/Chat";
 import { Configuracoes } from "./components/Configuracoes";
 import { PainelAgentes } from "./components/PainelAgentes";
-import { enviarComando, ErroComando } from "./lib/api";
+import {
+  StatusServidor,
+  type EstadoServidor,
+} from "./components/StatusServidor";
+import { enviarComando, ErroComando, verificarSaude } from "./lib/api";
 import {
   CONFIG_DEFAULT,
   carregarConfig,
@@ -22,6 +26,11 @@ function mensagemDeErro(e: unknown): string {
   return e instanceof ErroComando ? e.message : "Erro inesperado ao falar com o servidor.";
 }
 
+/** Texto exibido quando o /health barrou o envio. O detalhe fica no banner. */
+function mensagemServidorFora(): string {
+  return "Não enviei: o servidor não está respondendo. Veja o aviso no topo.";
+}
+
 export default function App() {
   const [config, setConfig] = useState<Config>(CONFIG_DEFAULT);
   const [sessionId, setSessionId] = useState<string | null>(null);
@@ -35,13 +44,42 @@ export default function App() {
   const [erroAgentes, setErroAgentes] = useState<string | null>(null);
   const [agentesCarregando, setAgentesCarregando] = useState(false);
 
+  const [estadoServidor, setEstadoServidor] =
+    useState<EstadoServidor>("verificando");
+  const [motivoServidor, setMotivoServidor] = useState<string | null>(null);
+
+  /**
+   * Pergunta ao /health se da para falar com o servidor.
+   *
+   * Devolve o resultado alem de guardar no estado, para quem chama poder
+   * decidir na hora sem esperar o re-render.
+   */
+  async function checarSaude(alvo: Config): Promise<boolean> {
+    setEstadoServidor("verificando");
+    try {
+      await verificarSaude(alvo);
+      setEstadoServidor("ok");
+      setMotivoServidor(null);
+      return true;
+    } catch (e) {
+      setEstadoServidor("inalcancavel");
+      setMotivoServidor(mensagemDeErro(e));
+      return false;
+    }
+  }
+
   useEffect(() => {
     (async () => {
-      setConfig(await carregarConfig());
+      const guardada = await carregarConfig();
+      setConfig(guardada);
       setSessionId(await carregarSessionId());
-    })().catch(() => {
-      // Store inacessivel: segue com os defaults em memoria.
-    });
+      return guardada;
+    })()
+      .catch(() => {
+        // Store inacessivel: segue com os defaults em memoria.
+        return CONFIG_DEFAULT;
+      })
+      .then(checarSaude);
   }, []);
 
   async function atualizarSessao(novoId: string) {
@@ -51,6 +89,14 @@ export default function App() {
 
   async function enviarMensagem(texto: string) {
     setMensagens((m) => [...m, { autor: "usuario", texto }]);
+    if (!(await checarSaude(config))) {
+      // Barra antes de gastar uma chamada de LLM num servidor que nao responde.
+      setMensagens((m) => [
+        ...m,
+        { autor: "shogun", texto: mensagemServidorFora(), erro: true },
+      ]);
+      return;
+    }
     setChatCarregando(true);
     try {
       const resposta = await enviarComando(config, texto, sessionId);
@@ -71,6 +117,11 @@ export default function App() {
   async function atualizarAgentes() {
     setAgentesCarregando(true);
     setErroAgentes(null);
+    if (!(await checarSaude(config))) {
+      setErroAgentes(mensagemServidorFora());
+      setAgentesCarregando(false);
+      return;
+    }
     try {
       const resposta = await enviarComando(config, COMANDO_PENDENCIAS, sessionId);
       await atualizarSessao(resposta.session_id);
@@ -92,6 +143,8 @@ export default function App() {
   async function salvar(nova: Config) {
     setConfig(nova);
     await salvarConfig(nova);
+    // URL ou token novos: o estado anterior nao diz mais nada sobre este alvo.
+    await checarSaude(nova);
   }
 
   return (
@@ -107,6 +160,12 @@ export default function App() {
         </button>
       </header>
 
+      <StatusServidor
+        estado={estadoServidor}
+        motivo={motivoServidor}
+        onVerificar={() => void checarSaude(config)}
+      />
+
       {telaConfig ? (
         <Configuracoes
           config={config}
@@ -118,6 +177,7 @@ export default function App() {
           <Chat
             mensagens={mensagens}
             carregando={chatCarregando}
+            bloqueado={estadoServidor === "inalcancavel"}
             onEnviar={enviarMensagem}
             onNovaConversa={novaConversa}
           />
