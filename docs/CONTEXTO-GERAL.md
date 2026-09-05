@@ -6,7 +6,7 @@
 > (com a justificativa de cada uma), as decisões em aberto e as pendências
 > técnicas.
 >
-> **Última atualização:** 2026-09-04.
+> **Última atualização:** 2026-09-05.
 >
 > Este arquivo **descreve**; ele não substitui as fontes. Quando divergir do
 > código, o código vence — e o documento precisa ser corrigido.
@@ -35,38 +35,26 @@ local) → `POST /comando` com o texto → servidor interpreta a intenção via
 
 ## 1. Estado atual do código
 
-### 1.1 ⚠️ Onde o código realmente está
+### 1.1 Onde o código está
 
-**Quase nada do servidor está em `dev`.** `origin/dev` (`5c4bbd4`) tem apenas o
-esqueleto do monorepo: `main.py` com `/health`, `core/config.py`, os READMEs e
-`shared/`. Nenhuma rota `/comando`, nenhuma camada de LLM, nenhum domínio,
-nenhum teste.
+**Tudo está em `dev`** (`f923204`). Não há branch de feature aberta: os quatro
+PRs foram mergeados e o GitHub removeu as branches remotas ao fechá-los.
 
-Tudo o que a seção 1.2 descreve vive em **`feature/servidor-central`**
-(`71906d4`), que ainda **não foi mergeada** — o PR sequer foi aberto (rascunho
-pronto em `.maestri/pr-pendente-feature-servidor-central.md`).
+| PR | Branch | O que trouxe |
+|---|---|---|
+| #3 | `feature/servidor-central` | `/comando`, camada de LLM, domínio, testes |
+| #4 | `feature/docs-fluxo-mensagem` | `docs/DESIGN.md`, `DATABASE.md`, `AGENTS.md` |
+| #5 | `feature/acesso-remoto-tailscale` | `SHOGUN_HOST`, validação do bind, CORS |
+| #6 | `feature/persistencia-sqlite` | `sessions`/`messages`, Alembic, histórico no prompt |
 
-| Branch | HEAD | Conteúdo | Suíte |
-|---|---|---|---|
-| `main` | — | só `README.md` + `LICENSE` | — |
-| `dev` | `5c4bbd4` | esqueleto do monorepo; **integração do projeto** | — |
-| `feature/servidor-central` | `71906d4` | **estado completo do servidor** — superconjunto das demais | 91 passed |
-| `feature/testes-dominio` | `ffcfd09` | domínio + testes; conteúdo já contido em `servidor-central` | 58 passed |
-| `feature/contratos-pendencias` | — | contrato de pendências (já absorvido) | — |
-| `feature/docs-fluxo-mensagem` | — | **única branch com `docs/DESIGN.md`, `docs/DATABASE.md`, `docs/AGENTS.md`** | — |
+Suíte na ponta de `dev`: **134 passed**.
 
-Consequência prática, e é a armadilha mais comum aqui: **os documentos
-`DESIGN.md`, `DATABASE.md` e `AGENTS.md` não existem em `dev` nem no checkout
-principal.** Para lê-los sem trocar de branch:
+`main` continua tendo só `README.md` + `LICENSE`, e segue sendo a branch default
+(errada) do repositório no GitHub — ver §5.
 
-```bash
-git show feature/docs-fluxo-mensagem:docs/DATABASE.md
-```
-
-O checkout principal (`C:/dev/shogun`) esteve em `feature/testes-dominio`, que
-**não tem** `server/app/core/llm/ollama.py` — o `OllamaProvider` só existe em
-`feature/servidor-central` e `feature/docs-fluxo-mensagem`. Conferir a branch
-antes de concluir que algo "não existe".
+> Esta seção substituiu um aviso, agora obsoleto, de que "quase nada do servidor
+> está em `dev`" e de que os documentos de `docs/` só existiam numa branch
+> separada. Ambas as coisas deixaram de valer com os merges acima.
 
 ### 1.2 `server/` — o único componente com lógica real
 
@@ -82,8 +70,12 @@ server/app/
 │   ├── config.py            # Settings (pydantic-settings, lê .env)
 │   ├── contracts.py         # ponte para shared/python
 │   ├── security.py          # autenticação Bearer
+│   ├── rede.py              # descobre o bind real do uvicorn no startup
 │   ├── pendencias.py        # injeção do PendenciasProvider no FastAPI
-│   └── llm/                 # base, registry, fallback, claude, openai_compat, ollama
+│   ├── persistencia.py      # injeção do RepositorioConversas no FastAPI
+│   └── llm/                 # base, registry, fallback, claude, openai_compat,
+│                            # ollama, historico (prompt com histórico)
+├── db/                      # persistência — models, engine, repositorio
 ├── domain/                  # domínio puro — sem HTTP, sem FastAPI
 │   ├── pendencias.py        # StatusAgente, Pendencia, PendenciasProvider (ABC)
 │   └── providers/           # MaestriProvider (stub), ShogunOrquestradorProvider
@@ -253,10 +245,12 @@ modificação privada.
 
 ### 2.3 SQLite via SQLAlchemy para persistência
 
-**Decisão tomada e documentada** em `docs/DATABASE.md` (branch
-`feature/docs-fluxo-mensagem`). ⚠️ **Nada disso está implementado** — não há
-SQLAlchemy em `requirements.txt`, não há modelos, não há banco. O servidor hoje
-não tem persistência nenhuma.
+**Decisão tomada e implementada** (PR #6). O schema e as decisões estão em
+`docs/DATABASE.md`, incluindo a seção "Divergências da implementação": o
+`session_id` é gerado pelo **servidor** quando o cliente manda nulo, as migrações
+são Alembic (e não `create_all` no startup), e os timestamps são UTC *naive* —
+o SQLite devolve `datetime` sem fuso, e misturar aware com naive levanta
+`TypeError` na comparação.
 
 **Por que SQLite:**
 
@@ -337,11 +331,11 @@ configurável por variável de ambiente.
 
 ## 3. Decisões em aberto — rede e provedor padrão
 
-> ⚠️ **Nada desta seção está decidido nem implementado.** É o registro do que foi
-> discutido, para que a próxima sessão não redescubra o problema do zero. Não
-> tratar como fato consumado.
+> §3.1 foi **decidida e implementada** (PR #5). §3.2 e §3.3 continuam em aberto:
+> são registro do que foi discutido, para que a próxima sessão não redescubra o
+> problema do zero — não tratar como fato consumado.
 
-### 3.1 Como o mobile alcança o servidor — **em aberto**
+### 3.1 Como o mobile alcança o servidor — **decidido: Tailscale**
 
 **O problema.** A arquitetura prevê desktop e mobile falando com um servidor
 central único. Hoje o servidor roda **local, na máquina do Marcus**
@@ -370,18 +364,20 @@ um bloqueio de arquitetura para o cliente mobile, não um detalhe de deploy.
 - Contra: **só funciona com o PC ligado.** Assistente indisponível quando a
   máquina está desligada ou dormindo.
 
-**Direção discutida:** tendência para a **opção B (Tailscale)**, por preservar o
-Ollama e não gerar custo recorrente. **Ainda não foi decidida em definitivo nem
-implementada** — não há nada no código, no `.env.example` ou nos demais docs a
-respeito.
+**Decidido: opção B (Tailscale)** — e implementada no PR #5. Preserva o Ollama
+com a GPU local e não gera custo recorrente. Ver "Acesso remoto via Tailscale"
+no `server/README.md`.
 
-Pontos que a decisão ainda precisa fechar, quando for tomada:
+O risco que a seção apontava — expor o servidor sem token — foi fechado no
+código: o servidor **recusa subir** (erro fatal, antes de a porta abrir) quando o
+bind aceita conexões de outras máquinas e `SHOGUN_AUTH_TOKEN` está vazio. Em bind
+local o token continua opcional. A checagem lê o host que o **uvicorn** recebeu,
+não a variável `SHOGUN_HOST`, então `uvicorn --host 0.0.0.0` também é barrado.
 
-- `SHOGUN_HOST` já é `0.0.0.0` (default), mas `SHOGUN_AUTH_TOKEN` **vazio
-  desliga a autenticação** — expor o servidor para fora do `localhost` sem token
-  configurado é o risco imediato de qualquer das duas opções;
-- como o cliente mobile descobre/configura o endereço do servidor;
-- comportamento quando o servidor está inalcançável (PC desligado, na opção B).
+Continuam em aberto, agora do lado do cliente:
+
+- como o mobile descobre/configura o endereço do servidor;
+- comportamento quando o servidor está inalcançável (PC desligado).
 
 ### 3.2 OpenCode Zen como provedor padrão — **em aberto e condicionada**
 
@@ -428,34 +424,27 @@ De `docs/architecture.md` e `docs/DESIGN.md`:
 
 | # | Pendência | Estado | Referência |
 |---|---|---|---|
-| 1 | **PR de `feature/servidor-central` → `dev`** | PR **não aberto**; rascunho pronto, merge verificado sem conflito, 91 testes verdes | `.maestri/pr-pendente-feature-servidor-central.md` |
+| 1 | **Clientes `desktop/` e `mobile/`** | só READMEs — é o maior bloco em aberto | §1.3 |
 | 2 | **Escolha do modelo do Ollama** | candidatos documentados; **nenhum baixado ou testado** | `server/README.md` §"Modelos candidatos" |
 | 3 | **Streaming da resposta** | não implementado; há uma tensão de desenho a resolver antes | `docs/DESIGN.md` passo 6 |
-| 4 | **Histórico de conversa / sessão** | schema desenhado, **código pendente** | `docs/DATABASE.md`, `docs/DESIGN.md` passos 2/3/4/8 |
+| 4 | **Sessão no lado do cliente** | o servidor já devolve o `session_id`; falta o cliente guardá-lo entre execuções | `docs/DESIGN.md` passo 2 |
+| 5 | **Sem CI** | a suíte só roda quando alguém lembra | — |
 
-### 4.1 PR de `feature/servidor-central`
+### 4.1 Achados de review ainda em aberto
 
-Head `71906d4`, 16 commits sobre `origin/dev`, working tree limpa e em sincronia
-com o remoto. Merge para `origin/dev` verificado com `git merge-tree`: **sem
-conflitos**. Suíte: 91 passed.
+O PR #3 foi mergeado; o que sobrou dele é a lista do review de contrato
+(`.maestri/review-contrato-consumidor.md`), que na época foi classificada como
+"mergear primeiro, corrigir depois":
 
-- **Base tem de ser `dev`, não `main`** — a branch default do repositório no
-  GitHub está como `main`, então o PR nasce apontando errado e a base precisa ser
-  trocada à mão (CLAUDE.md §6).
-- `feature/testes-dominio` é **redundante** (conteúdo já contido; `domain/` e
-  `test_domain.py` byte-idênticos) — deletar só depois do merge, e por decisão do
-  Marcus.
-- Review de contrato feito (`.maestri/review-contrato-consumidor.md`): **nenhum
-  achado bloqueia o merge**. Quatro achados reais em aberto: `timestamp` naive vs
-  aware quebrando o sort da rota; provider default afirmando "zero pendências"
-  quando a fonte nunca foi conectada (**precisa de acordo entre backend e
-  contratos**); `str(exc)` vazando detalhe de implementação para o cliente;
-  `ShogunOrquestradorProvider` não sendo thread-safe enquanto a rota o chama em
-  threadpool. Recomendação registrada: mergear primeiro, corrigir depois, em
-  branch nova a partir de `dev`.
-- ⚠️ `feature/docs-fluxo-mensagem` (DESIGN/DATABASE/AGENTS) **não** está coberta
-  por esse PR e continua sem plano de merge registrado.
-- ⚠️ `dev` local está **3 commits atrás** de `origin/dev`.
+- ✅ **`timestamp` naive vs aware quebrando o sort** — resolvido no PR #6:
+  `agora_utc()` grava UTC sem `tzinfo`, um formato interno só;
+- ✅ **provider default afirmando "zero pendências" quando a fonte nunca foi
+  conectada** — a rota hoje distingue os dois casos;
+- ⬜ **`str(exc)` vazando detalhe de implementação para o cliente** na falha do
+  provedor de pendências;
+- ⬜ **`ShogunOrquestradorProvider` não é thread-safe** enquanto a rota o chama
+  em threadpool. Hoje é estado em memória; some quando ele ganhar o repositório
+  de verdade (§2.3 agora tem banco para apoiá-lo).
 
 ### 4.2 Modelo do Ollama
 
@@ -493,22 +482,25 @@ existem depois da interpretação completa. E o transporte precisa entregar em
 fronteiras faláveis (frase/oração), senão o TTS corta no meio das palavras.
 SSE ou WebSocket ainda em aberto.
 
-### 4.4 Histórico de conversa
+### 4.4 Histórico de conversa — implementado (versão concatenada)
 
-Schema desenhado (§2.3), **nenhuma linha de código**. Ordem de dependência
-registrada em `docs/DESIGN.md`:
+Feito no PR #6. A rota lê as últimas `SHOGUN_HISTORICO_MAX_MENSAGENS` (default
+20) mensagens da sessão e as concatena ao prompt como bloco de contexto.
 
-1. persistência (`sessions` + `messages`);
-2. sessão no cliente — muda `CommandRequest` em `shared/`;
-3. histórico no contexto — **muda a interface `LLMProvider`**:
-   `interpretar_comando(texto)` passa a receber uma lista de mensagens, o que
-   afeta os quatro provedores de uma vez. É a mudança conceitual maior do plano;
-4. streaming;
-5. contrato de `abrir_app` (independente dos demais).
+**A interface `LLMProvider` não mudou.** `interpretar_comando(texto)` continua
+recebendo uma string: trocar a assinatura atinge os quatro provedores de uma vez,
+e ainda não se sabe se a concatenação é boa o bastante para justificar isso. Os
+critérios para migrar para uma lista de mensagens estão no passo 4 do
+`docs/DESIGN.md` — em resumo, o modelo confundir quem falou o quê, responder ao
+histórico em vez do comando, ou o modelo local degradar mais que os de nuvem.
 
-O INSERT da mensagem do usuário acontece **antes** de chamar o modelo, de
-propósito: gravando antes, um comando que falha no LLM continua registrado — e
-esse passo já pode falhar hoje (503 quando provedor e fallback caem juntos).
+Duas ordens deliberadas na rota, que valem lembrar antes de mexer nela:
+
+- o histórico é lido **antes** do INSERT da mensagem nova, senão o comando atual
+  apareceria duas vezes no prompt;
+- o INSERT do usuário acontece **antes** de chamar o modelo: gravando antes, um
+  comando que falha no LLM continua registrado — e esse passo pode falhar (503
+  quando provedor e fallback caem juntos).
 
 ### 4.5 Outras lacunas de estado
 
@@ -599,11 +591,11 @@ consulta pendências **dos agentes do Maestri**, via `PendenciasProvider`. Ver
 | Documento | Onde vive | Conteúdo |
 |---|---|---|
 | `README.md` | todas as branches | visão geral, estrutura do monorepo, como rodar |
-| `CLAUDE.md` | raiz (**não em `dev`**) | contexto e convenções para agentes — **fonte das regras** |
-| `docs/architecture.md` | todas as branches | componentes, fluxo de comando, decisões em aberto |
-| `docs/DESIGN.md` | ⚠️ só `feature/docs-fluxo-mensagem` | fluxo de uma mensagem, passo a passo, marcado ✅/🟡/🔴 |
-| `docs/DATABASE.md` | ⚠️ só `feature/docs-fluxo-mensagem` | decisão SQLite+SQLAlchemy, schema, critérios de migração |
-| `docs/AGENTS.md` | ⚠️ só `feature/docs-fluxo-mensagem` | os dois sentidos de "agente", contrato sugerido, agentes previstos |
-| `server/README.md` | todas menos `dev` | endpoints, env vars, provedores, Ollama, modelos candidatos |
-| `.maestri/*.md` | não versionado (ignorado no `.gitignore` de `servidor-central`) | estado das branches, rascunho do PR, reviews |
+| `CLAUDE.md` | raiz | contexto e convenções para agentes — **fonte das regras** |
+| `docs/architecture.md` | `dev` | componentes, fluxo de comando, decisões em aberto |
+| `docs/DESIGN.md` | `dev` | fluxo de uma mensagem, passo a passo, marcado ✅/🟡/🔴 |
+| `docs/DATABASE.md` | `dev` | SQLite+SQLAlchemy, schema, divergências, migração para Postgres |
+| `docs/AGENTS.md` | `dev` | os dois sentidos de "agente", contrato sugerido, agentes previstos |
+| `server/README.md` | `dev` | endpoints, env vars, provedores, Ollama, banco, acesso remoto |
+| `.maestri/*.md` | não versionado | estado das branches, rascunhos de PR, reviews, conflitos resolvidos |
 | **`docs/CONTEXTO-GERAL.md`** | este arquivo | consolidação de tudo acima |
