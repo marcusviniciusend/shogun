@@ -116,8 +116,14 @@ body {
   position: absolute;
   left: 50%;
   top: 50%;
-  transform: translate(-50%, -54%);
-  height: 2.3em;
+  transform: translate(-57%, -52%);
+  /* caixa explicita na proporcao do video (320x160 = 2:1), dimensionada
+     para o kanji desenhado casar com o glifo estatico de 1.15rem — os
+     glifos ocupam 221x109 do quadro, dai os 3.9rem de largura */
+  width: 3.9rem;
+  height: 1.95rem;
+  max-width: none;
+  object-fit: contain;
   pointer-events: none;
 }
 
@@ -134,6 +140,8 @@ body {
 
 .splash video {
   width: min(560px, 70vw);
+  aspect-ratio: 2 / 1; /* 800x400 */
+  object-fit: contain;
 }
 
 @media (prefers-reduced-motion: reduce) {
