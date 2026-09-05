@@ -44,10 +44,13 @@ locais em `src/lib/types.ts` que espelham o fio de verdade.
 
 ## Identidade visual e animações
 
-O redesenho segue minimalismo japonês ("ma"): fundo carvão, texto em
-off-white, um único acento bengara, e tipografia como voz — o Shogun fala
-em Zen Old Mincho (serifa), o usuário e os controles em Zen Kaku Gothic
-New. Fontes embarcadas via fontsource, nada vem da rede.
+O redesenho segue minimalismo japonês ("ma"), na paleta "washi cru": fundo
+de papel claro (`#EDE6D4`), tinta sumi para texto e para o pincel do kanji
+(`#211E1A`), cinza *hai* para o secundário (`#7A7264`), e o bengara
+(`#A63D2F`) reservado **exclusivamente** a erro e atenção crítica — nunca
+decorativo. Tipografia como voz — o Shogun fala em Zen Old Mincho
+(serifa), o usuário e os controles em Zen Kaku Gothic New. Fontes
+embarcadas via fontsource, nada vem da rede.
 
 Duas animações usam o kanji 将軍 escrito a pincel (WebM com canal alpha em
 `src/assets/`, renderizados com Remotion a partir de um projeto separado,
