@@ -91,6 +91,11 @@ ios/*.xcworkspace/xcuserdata/
 # ---------- Env & secrets ----------
 .env
 .env.*
+# Cobre tambem os arquivos com prefixo (prod.env, staging.env), que os padroes
+# acima nao pegam. Nao casa com .env.example, que termina em .example.
+*.env
+# A negacao vem por ultimo para vencer os padroes acima: o .env.example e o
+# template versionado e deve continuar rastreado.
 !.env.example
 *.pem
 secrets.json
@@ -104,6 +109,11 @@ secrets.json
 .DS_Store
 Thumbs.db
 desktop.ini
+
+# ---------- Orquestracao local (Maestri) ----------
+# Artefato local do canvas: prompts de papel por agente e settings do Claude Code.
+# E estado da maquina do desenvolvedor, nao codigo do projeto.
+.maestri/
 
 # ---------- Logs / temp ----------
 *.log
