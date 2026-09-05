@@ -15,17 +15,17 @@ alvo, não o estado atual**: parte já roda, parte é plano.
 1. Cliente (desktop/mobile) manda comando de voz transcrito        ✅
         │
         ▼
-2. [client] Se session_id == null: cria nova sessão                🔴
+2. [server] Se session_id == null: cria sessão e devolve o id      🟡
         │
         ▼
-3. POST /comando { session_id, texto }                             🟡
+3. POST /comando { session_id?, texto }                            ✅
         │
         ├─ Valida token                                            ✅
-        ├─ INSERT mensagem do usuário na sessão                    🔴
-        ├─ SELECT histórico da sessão                              🔴
+        ├─ SELECT histórico da sessão                              ✅
+        ├─ INSERT mensagem do usuário na sessão                    ✅
         │
         ▼
-4. Servidor monta prompt com histórico + comando novo              🔴
+4. Servidor monta prompt com histórico + comando novo              🟡
         │
         ▼
 5. Chama LLMProvider (Claude/DeepSeek/GPT-4o mini/Ollama,          ✅
@@ -39,12 +39,13 @@ alvo, não o estado atual**: parte já roda, parte é plano.
    (ou espera completar, se não streamar)
         │
         ▼
-8. [fim] INSERT mensagem do assistente, UPDATE da sessão           🔴
+8. [fim] INSERT mensagem do assistente, UPDATE da sessão           ✅
 ```
 
 Resumindo: **existe hoje o miolo** (autenticação, interpretação pelo LLM,
-execução da ação); **falta a memória em volta dele** (passos 2, 3-INSERT,
-3-SELECT, 4 e 8) e **a entrega incremental** (passos 6 e 7).
+execução da ação) **e a memória em volta dele** (passos 3 e 8, com o 4 na versão
+concatenada). Falta o **lado cliente da sessão** (passo 2: guardar o id entre
+execuções) e **a entrega incremental** (passos 6 e 7).
 
 ---
 
@@ -54,20 +55,22 @@ O desktop (Tauri) ou o mobile (RN) já transcreveu o áudio localmente e envia
 apenas texto. O STT fica no cliente por decisão de latência — o servidor nunca
 recebe áudio.
 
-## 2. Criação da sessão no cliente — 🔴 Novo
+## 2. Criação da sessão — ✅ Existe (no servidor)
 
-Se o cliente não tem `session_id`, ele cria um antes de falar com o servidor.
+`CommandRequest.session_id` é `Optional[str]`. Nulo significa conversa nova.
 
-Hoje `CommandRequest.session_id` é `str` obrigatório: não existe o caso
-`session_id == null` que o passo prevê, e nenhum cliente cria sessão. Duas coisas
-mudam aqui — o contrato em `shared/` passa a aceitar nulo, e o cliente ganha a
-responsabilidade de gerar e guardar o id entre execuções.
+**Decisão tomada: quem gera o id é o servidor.** Era a alternativa apontada
+aqui, e resolve o ponto levantado — com o id nascendo no cliente, um cliente
+pode inventar id de sessão alheia. Irrelevante com um usuário só, mas é o que
+amarra o `user_id` discutido em [DATABASE.md](DATABASE.md) quando houver mais de
+um, e mudar depois seria mudança de contrato.
 
-Decisão pendente: **quem gera o id**. O contrato atual (id vindo do cliente)
-implica que um cliente pode inventar id de sessão alheia — irrelevante com um
-usuário só, mas é o que amarra o `user_id` discutido em
-[DATABASE.md](DATABASE.md) se um dia houver mais de um. A alternativa é o
-servidor devolver o id na primeira resposta.
+Na primeira mensagem o cliente manda `session_id` nulo; o servidor cria a sessão
+e devolve o id em `CommandResponse.session_id`. O cliente guarda e reenvia nas
+próximas. Um id vindo do cliente continua sendo aceito e materializado — quem já
+tem conversa não a perde.
+
+Falta só o lado do cliente: guardar o id entre execuções.
 
 ## 3. `POST /comando` — 🟡 Parcial
 
@@ -79,7 +82,7 @@ comparado com `secrets.compare_digest` para não vazar o token por timing. Token
 vazio desliga a autenticação — só para desenvolvimento local, e o servidor avisa
 no log de inicialização.
 
-### INSERT da mensagem do usuário — 🔴 Novo
+### INSERT da mensagem do usuário — ✅ Existe
 
 Grava o texto recebido em `messages` com `role="user"`, **antes** de chamar o
 modelo.
@@ -89,29 +92,62 @@ Se gravasse depois, toda falha do modelo apagaria a pergunta do Marcus do
 histórico — e o passo 5 já pode falhar hoje (503 quando provedor e fallback caem
 juntos).
 
-Se a sessão ainda não existe no banco, é aqui que ela é criada: o passo 2 gera o
-id, o servidor materializa a linha em `sessions`.
+Se a sessão ainda não existe no banco, é aqui que ela é criada.
 
-### SELECT do histórico — 🔴 Novo
+### SELECT do histórico — ✅ Existe
 
-Lê as últimas N mensagens da sessão. O índice `(session_id, id)` proposto em
-[DATABASE.md](DATABASE.md) serve exatamente esta consulta.
+Lê as últimas N mensagens da sessão (`SHOGUN_HISTORICO_MAX_MENSAGENS`, default
+20). O índice `(session_id, id)` serve exatamente esta consulta.
 
-## 4. Montagem do prompt com histórico — 🔴 Novo
+A leitura acontece **antes** do INSERT da mensagem nova — senão o comando atual
+apareceria duas vezes no prompt, uma no bloco de contexto e outra no fim.
 
-**É a mudança conceitual maior do plano.** Hoje `interpretar_comando(texto)`
-recebe uma string solta: cada comando é interpretado sem memória do anterior, e
-"e as outras?" logo depois de "quais são minhas pendências?" não tem como
-funcionar. Com histórico, a interface `LLMProvider` passa a receber uma lista de
-mensagens — o que afeta os quatro provedores de uma vez.
+## 4. Montagem do prompt com histórico — 🟡 Parcial (versão concatenada)
 
-O `SYSTEM_PROMPT` continua fixo e idêntico em todos eles; o histórico entra
-depois dele, antes do comando novo.
+Cada comando era interpretado sem memória do anterior: "e as outras?" logo depois
+de "quais são minhas pendências?" não tinha como funcionar. Agora tem.
 
-Duas decisões em aberto: **quantas** mensagens (janela fixa vs. orçamento de
-tokens) e o que fazer quando estourar o contexto (truncar as mais antigas vs.
-resumir). O modelo local (Hermes 3 8B) tem contexto menor que os de nuvem, então
-o limite precisa caber no menor dos provedores, não no maior.
+**A interface não mudou.** `interpretar_comando(texto)` continua recebendo uma
+string; o histórico entra concatenado nela, em
+`app/core/llm/historico.py`:
+
+```
+Histórico da conversa (mais antigo primeiro):
+Marcus: quais são minhas pendências?
+Shogun: Você tem 2 pendências: ...
+
+Comando atual:
+e as outras?
+```
+
+Sem histórico, o prompt é o comando puro — conversa nova não carrega bloco de
+contexto vazio.
+
+Foi escolha deliberada de não mexer na assinatura: trocá-la atinge os quatro
+provedores de uma vez, e ainda não se sabe se a concatenação é boa o bastante
+para justificar isso. O `SYSTEM_PROMPT` segue fixo e idêntico em todos.
+
+### Migração futura para assinatura estruturada
+
+**Se a qualidade da versão concatenada não se sustentar**, o caminho é
+`interpretar_comando` passar a receber uma lista de mensagens
+(`[{"role": ..., "content": ...}]`), que é o formato nativo das APIs dos quatro
+provedores. Os sinais de que chegou a hora:
+
+- o modelo confundir quem falou o quê, ou responder ao histórico em vez do
+  comando atual;
+- o modelo tratar o bloco de contexto como parte do comando (ex.: repetir uma
+  resposta antiga);
+- o modelo local degradar mais que os de nuvem no mesmo histórico — sinal de que
+  o formato em texto puro está custando atenção que a estrutura não custaria.
+
+O custo é conhecido: os quatro provedores, `FallbackLLMProvider` e os testes de
+cada um. `montar_prompt` some, e o `SYSTEM_PROMPT` continua onde está.
+
+Uma decisão segue em aberto: o que fazer quando o histórico estourar o contexto
+— truncar as mais antigas (hoje) vs. resumir. A janela é por contagem de
+mensagens, não por orçamento de tokens: precisa caber no menor contexto entre os
+provedores, e contar mensagem é previsível sem tokenizer.
 
 ## 5. Chamada ao LLMProvider — ✅ Existe
 
@@ -164,7 +200,7 @@ TTS corta no meio das palavras.
 Motor de TTS e onde ele roda continuam em aberto (ver
 [architecture.md](architecture.md)).
 
-## 8. INSERT do assistente e UPDATE da sessão — 🔴 Novo
+## 8. INSERT do assistente e UPDATE da sessão — ✅ Existe
 
 Fecha o ciclo: grava a resposta em `messages` com `role="assistant"` e atualiza
 `sessions.updated_at`. É o que torna o SELECT do passo 3 útil na próxima
@@ -180,8 +216,9 @@ se uma resposta ruim veio do modelo local ou do fallback de nuvem.
 
 ## O que falta, em ordem de dependência
 
-1. **Persistência** (`sessions` + `messages`) — passos 3 e 8 → [DATABASE.md](DATABASE.md)
-2. **Sessão no cliente** — passo 2, muda `CommandRequest` em `shared/`
-3. **Histórico no contexto** — passo 4, muda a interface `LLMProvider`
-4. **Streaming** — passos 6 e 7, depende de resolver a tensão com saída estruturada
-5. **Contrato de `abrir_app`** — independente dos demais → [AGENTS.md](AGENTS.md)
+1. ~~**Persistência** (`sessions` + `messages`) — passos 3 e 8~~ → feito, ver [DATABASE.md](DATABASE.md)
+2. ~~**Histórico no contexto** — passo 4~~ → feito na versão concatenada, sem mexer na interface `LLMProvider`
+3. **Sessão no cliente** — passo 2: o servidor já devolve o id; falta o cliente guardá-lo entre execuções
+4. **Assinatura estruturada do `LLMProvider`** — só se a concatenação do passo 4 não segurar; critérios no passo 4
+5. **Streaming** — passos 6 e 7, depende de resolver a tensão com saída estruturada
+6. **Contrato de `abrir_app`** — independente dos demais → [AGENTS.md](AGENTS.md)

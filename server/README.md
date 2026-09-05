@@ -16,8 +16,53 @@ python -m venv .venv
 source .venv/bin/activate      # Windows: .venv\Scripts\activate
 pip install -r requirements.txt   # ou requirements-dev.txt para rodar os testes
 cp .env.example .env           # preencha a credencial do provedor escolhido
+alembic upgrade head           # cria o banco (SQLite) na primeira vez
 uvicorn app.main:app --reload
 ```
+
+## Banco de dados
+
+SQLite via SQLAlchemy — o banco é um arquivo, sem serviço para subir. Caminho em
+`SHOGUN_DATABASE_URL` (default `sqlite:///./shogun.db`, relativo a `server/`).
+O desenho do schema e as decisões estão em [`docs/DATABASE.md`](../docs/DATABASE.md).
+
+Duas tabelas: `sessions` (uma conversa) e `messages` (uma fala, do Marcus ou do
+Shogun). A ordenação canônica das mensagens é por `messages.id`, não por
+`created_at`: duas mensagens gravadas no mesmo instante não teriam desempate por
+timestamp, e a ordem user → assistant dentro de um comando precisa ser estável.
+
+### Migrações
+
+Alembic, com a revisão inicial já versionada. **O servidor não migra sozinho no
+startup** — subir e migrar são operações diferentes:
+
+```bash
+alembic upgrade head            # aplica as migrações pendentes
+alembic current                 # em que revisão o banco está
+alembic downgrade -1            # volta uma
+```
+
+Depois de mexer nos modelos, gere a revisão e **leia o arquivo gerado** antes de
+commitar — o autogenerate acerta o comum, não o sutil:
+
+```bash
+alembic revision --autogenerate -m "descricao curta"
+```
+
+A URL não fica no `alembic.ini`: `alembic/env.py` lê `SHOGUN_DATABASE_URL`, a
+mesma variável do servidor. Duas fontes de verdade para o endereço do banco é
+como se migra um banco e se roda contra outro.
+
+### Sessão de conversa
+
+`CommandRequest.session_id` é opcional. Nulo significa conversa nova: o servidor
+cria a sessão e devolve o id em `CommandResponse.session_id`, que o cliente
+guarda e reenvia nas próximas mensagens. Um id vindo do cliente também é aceito.
+
+Antes de chamar o LLM, a rota lê as últimas `SHOGUN_HISTORICO_MAX_MENSAGENS`
+mensagens da sessão e as concatena ao prompt como bloco de contexto — a
+interface `LLMProvider` continua recebendo uma string só. O porquê e o gatilho
+para mudar isso estão no passo 4 de [`docs/DESIGN.md`](../docs/DESIGN.md).
 
 ## Layout
 
