@@ -16,8 +16,50 @@ python -m venv .venv
 source .venv/bin/activate      # Windows: .venv\Scripts\activate
 pip install -r requirements.txt   # ou requirements-dev.txt para rodar os testes
 cp .env.example .env           # preencha a credencial do provedor escolhido
-uvicorn app.main:app --reload
+uvicorn app.main:app --reload  # desenvolvimento: 127.0.0.1:8000
 ```
+
+O `--reload` do uvicorn escuta em `127.0.0.1` — bom para desenvolvimento, mas
+invisível para outras máquinas. Para subir no host e na porta da configuração
+(`SHOGUN_HOST`, `SHOGUN_PORT`), use o entrypoint do próprio servidor:
+
+```bash
+python -m app.main                # respeita SHOGUN_HOST / SHOGUN_PORT
+```
+
+ou passe as flags na mão:
+
+```bash
+uvicorn app.main:app --host 0.0.0.0 --port 8000
+```
+
+### Escutar na rede exige token
+
+O servidor **recusa subir** quando `SHOGUN_HOST` aceita conexões de outras
+máquinas (qualquer coisa fora de `127.0.0.1`, `localhost` e `::1`) e
+`SHOGUN_AUTH_TOKEN` está vazio. A falha é fatal, no startup, antes de a porta
+abrir — vale tanto para `python -m app.main` quanto para `uvicorn app.main:app`:
+
+```
+ConfiguracaoInseguraError: SHOGUN_HOST=0.0.0.0 aceita conexoes de outras
+maquinas, mas SHOGUN_AUTH_TOKEN esta vazio - o servidor ficaria aberto a quem
+alcancasse a porta. Defina SHOGUN_AUTH_TOKEN, ou use SHOGUN_HOST=127.0.0.1
+para desenvolvimento local sem token.
+```
+
+Em bind local o token continua **opcional**: só o próprio computador alcança o
+servidor, e exigir token ali atrapalharia o desenvolvimento sem proteger nada.
+Nesse caso sai apenas um aviso no log.
+
+| `SHOGUN_HOST` | Sem `SHOGUN_AUTH_TOKEN` | Com token |
+|---|---|---|
+| `127.0.0.1`, `localhost`, `::1` | sobe, com aviso no log | sobe |
+| `0.0.0.0` ou qualquer IP | **recusa subir** | sobe |
+
+Uma ressalva: a verificação lê `SHOGUN_HOST`, não o socket. Se você passar
+`uvicorn --host 0.0.0.0` deixando `SHOGUN_HOST=127.0.0.1`, o bind fica aberto e
+a checagem não pega. Prefira `python -m app.main`, que usa a mesma configuração
+que valida.
 
 ## Layout
 
@@ -219,6 +261,76 @@ ele falha junto e o erro cita os dois motivos.
   Sem fallback configurado, a rota devolve 503.
 - **Trocar de modelo é só `OLLAMA_MODEL`** — veja "Modelos candidatos" acima, desde
   que o modelo suporte saída estruturada no Ollama.
+
+## Acesso remoto via Tailscale
+
+O cliente mobile não fica na mesma rede local que o PC. A ligação é feita pelo
+Tailscale, que coloca os dois na mesma rede privada — o servidor não precisa ser
+publicado na internet, e nenhuma porta é aberta no roteador.
+
+### 1. Descobrir o IP Tailscale do PC
+
+```bash
+tailscale ip -4        # ex.: 100.101.102.103
+```
+
+Esse endereço é estável enquanto a máquina estiver na mesma tailnet. Os
+`100.x.y.z` deste README são **exemplo** — use o que o comando devolver.
+
+### 2. Subir o servidor escutando na rede
+
+```bash
+# .env
+SHOGUN_HOST=0.0.0.0
+SHOGUN_PORT=8000
+SHOGUN_AUTH_TOKEN=<token-compartilhado-com-os-clientes>   # obrigatorio aqui
+```
+
+```bash
+python -m app.main
+```
+
+Sem `SHOGUN_AUTH_TOKEN` o servidor recusa subir — ver
+"Escutar na rede exige token", acima.
+
+### 3. Apontar o cliente
+
+Com o Tailscale ativo no celular, o servidor responde em:
+
+```
+http://100.101.102.103:8000
+```
+
+```bash
+curl http://100.101.102.103:8000/health
+# {"status":"ok"}
+```
+
+As requisições ao `/comando` continuam exigindo o header
+`Authorization: Bearer <SHOGUN_AUTH_TOKEN>`, igual em rede local.
+
+### Sobre segurança
+
+O Tailscale já restringe o acesso à rede privada: só dispositivos da mesma
+tailnet alcançam a porta. Somado ao Bearer token, é o suficiente por agora —
+**não há autenticação adicional planejada** para este cenário.
+
+Vale lembrar que `SHOGUN_HOST=0.0.0.0` escuta em *todas* as interfaces, não só
+na do Tailscale. Numa rede Wi-Fi pública, a porta fica alcançável por quem
+estiver na mesma rede — e é exatamente por isso que o token virou obrigatório
+nesse modo.
+
+### CORS
+
+Não é necessário para os clientes atuais: desktop (Tauri) e mobile (React
+Native) falam HTTP direto, sem origem de navegador, e não disparam preflight.
+O `CORSMiddleware` só é registrado quando `SHOGUN_ALLOWED_ORIGINS` tem valor:
+
+```bash
+SHOGUN_ALLOWED_ORIGINS=http://100.101.102.103:8000,http://localhost:1420
+```
+
+Origens separadas por vírgula, nada hardcoded no código.
 
 ## Testes
 
