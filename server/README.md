@@ -35,31 +35,65 @@ uvicorn app.main:app --host 0.0.0.0 --port 8000
 
 ### Escutar na rede exige token
 
-O servidor **recusa subir** quando `SHOGUN_HOST` aceita conexões de outras
-máquinas (qualquer coisa fora de `127.0.0.1`, `localhost` e `::1`) e
-`SHOGUN_AUTH_TOKEN` está vazio. A falha é fatal, no startup, antes de a porta
-abrir — vale tanto para `python -m app.main` quanto para `uvicorn app.main:app`:
+O servidor **recusa subir** quando o bind aceita conexões de outras máquinas
+(qualquer host fora de `127.0.0.1`, `localhost` e `::1`) e `SHOGUN_AUTH_TOKEN`
+está vazio. A falha é fatal, no startup, antes de a porta abrir — vale tanto
+para `python -m app.main` quanto para `uvicorn app.main:app`:
 
 ```
-ConfiguracaoInseguraError: SHOGUN_HOST=0.0.0.0 aceita conexoes de outras
-maquinas, mas SHOGUN_AUTH_TOKEN esta vazio - o servidor ficaria aberto a quem
-alcancasse a porta. Defina SHOGUN_AUTH_TOKEN, ou use SHOGUN_HOST=127.0.0.1
-para desenvolvimento local sem token.
+ConfiguracaoInseguraError: o servidor vai escutar em 0.0.0.0, vindo de
+uvicorn --host, o que aceita conexoes de outras maquinas - mas
+SHOGUN_AUTH_TOKEN esta vazio, entao ele ficaria aberto a quem alcancasse a
+porta. Defina SHOGUN_AUTH_TOKEN, ou escute em 127.0.0.1 para desenvolvimento
+local sem token.
 ```
+
+A mensagem diz de onde veio o host (`uvicorn --host`, `SHOGUN_HOST`, `--uds`,
+`--fd`), para não confundir quem tem uma coisa no `.env` e outra na linha de
+comando.
 
 Em bind local o token continua **opcional**: só o próprio computador alcança o
 servidor, e exigir token ali atrapalharia o desenvolvimento sem proteger nada.
 Nesse caso sai apenas um aviso no log.
 
-| `SHOGUN_HOST` | Sem `SHOGUN_AUTH_TOKEN` | Com token |
+| Bind efetivo | Sem `SHOGUN_AUTH_TOKEN` | Com token |
 |---|---|---|
 | `127.0.0.1`, `localhost`, `::1` | sobe, com aviso no log | sobe |
 | `0.0.0.0` ou qualquer IP | **recusa subir** | sobe |
 
-Uma ressalva: a verificação lê `SHOGUN_HOST`, não o socket. Se você passar
-`uvicorn --host 0.0.0.0` deixando `SHOGUN_HOST=127.0.0.1`, o bind fica aberto e
-a checagem não pega. Prefira `python -m app.main`, que usa a mesma configuração
-que valida.
+#### O que é inspecionado: o bind real, não o `.env`
+
+A verificação **não** lê `SHOGUN_HOST`. Ela lê o host que o servidor ASGI
+realmente recebeu — `uvicorn --host 0.0.0.0` com `SHOGUN_HOST=127.0.0.1` no
+`.env` é barrado do mesmo jeito, e o contrário (`--host 127.0.0.1` com
+`SHOGUN_HOST=0.0.0.0`) sobe normalmente sem token.
+
+O uvicorn não expõe essa informação à aplicação: não há hook de startup nem
+campo no `scope` do lifespan com o host. O caminho usado está em
+`app/core/rede.py` — o lifespan da app roda dentro da tarefa do
+`uvicorn.lifespan.on.LifespanOn.main`, que é quem chama
+`await app(scope, receive, send)`; esse frame carrega o `Config` do uvicorn, e é
+de lá que o host é lido, percorrendo a pilha.
+
+Isso acontece **antes do bind**: o uvicorn executa o lifespan e só depois abre o
+socket (`Server.startup()` chama `lifespan.startup()` e em seguida
+`loop.create_server(...)`). A recusa impede a porta de abrir — não fecha uma
+porta que já abriu.
+
+Casos de borda:
+
+| Situação | Tratamento |
+|---|---|
+| `--host <ip>` / `uvicorn.run(host=...)` | usa esse host |
+| `--uds /caminho.sock` | conta como local (só quem tem o filesystem alcança) |
+| `--fd 3` | assume **exposto**: não dá para saber onde o descritor já escuta |
+| fora do uvicorn (`TestClient`, outro servidor ASGI) | cai para `SHOGUN_HOST` |
+
+A leitura depende de um detalhe interno do uvicorn (o nome do frame e o atributo
+`config`). Se uma versão futura reorganizar isso, `descobrir_bind` volta ao
+`SHOGUN_HOST` em vez de quebrar — e há teste subindo o uvicorn como processo de
+verdade, justamente para que essa regressão apareça na suíte em vez de em
+produção.
 
 ## Layout
 
