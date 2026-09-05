@@ -1,5 +1,7 @@
 # Shogun
 
+[![testes](https://github.com/marcusviniciusend/shogun/actions/workflows/tests.yml/badge.svg?branch=dev)](https://github.com/marcusviniciusend/shogun/actions/workflows/tests.yml)
+
 **Um comandante digital** — assistente pessoal de voz, para Desktop e Mobile.
 
 Shogun escuta comandos de voz, entende a intenção com um modelo de linguagem — na

@@ -110,6 +110,21 @@ pip install -r requirements-dev.txt
 pytest
 ```
 
+### CI
+
+Existe CI: `.github/workflows/tests.yml` roda a suíte no GitHub Actions a cada
+push e a cada PR direcionado a `dev` ou `main`, em Python 3.11 e 3.13.
+
+**Todo PR deve estar verde antes do merge.** A proteção de branch ainda **não
+está habilitada** no GitHub — hoje nada impede tecnicamente um merge com a suíte
+vermelha, então a regra vale por disciplina de quem revisa. Habilitar a proteção
+é configuração manual, no repositório.
+
+O CI não usa segredo nenhum e não roda migração de banco: os testes usam SQLite
+em memória e mockam todo provedor externo. Se um teste novo precisar de
+credencial ou de rede, ele deixou de ser teste unitário — não coloque no CI sem
+antes decidir onde ele vive.
+
 ### Onde colocar código novo
 
 - **Contratos e interfaces de domínio** → `server/app/domain/`. Domínio puro:
