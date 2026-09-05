@@ -56,7 +56,9 @@ export default function App() {
 
   // Splash roda uma vez por abertura; quem pediu menos movimento nao o ve.
   const [splashAtivo, setSplashAtivo] = useState(!REDUZ_MOVIMENTO);
-  const pensando = !REDUZ_MOVIMENTO && (chatCarregando || agentesCarregando);
+  // O kanji do wordmark e escrito em loop continuo; com reducao de
+  // movimento, fica o glifo estatico.
+  const animaMarca = !REDUZ_MOVIMENTO;
 
   /**
    * Pergunta ao /health se da para falar com o servidor.
@@ -162,10 +164,10 @@ export default function App() {
       <header className="app-cabecalho">
         <h1>
           <span className="marca-kanji-wrap" aria-hidden>
-            <span className={`marca-kanji${pensando ? " oculto" : ""}`}>
+            <span className={`marca-kanji${animaMarca ? " oculto" : ""}`}>
               将軍
             </span>
-            {pensando && (
+            {animaMarca && (
               <video
                 className="marca-kanji-video"
                 src={indicadorUrl}
