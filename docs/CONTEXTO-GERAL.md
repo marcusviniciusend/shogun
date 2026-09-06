@@ -632,6 +632,7 @@ consulta pendências **dos agentes do Maestri**, via `PendenciasProvider`. Ver
 | `docs/DATABASE.md` | `dev` | SQLite+SQLAlchemy, schema, divergências, migração para Postgres |
 | `docs/AGENTS.md` | `dev` | os dois sentidos de "agente", contrato sugerido, agentes previstos |
 | `server/README.md` | `dev` | endpoints, env vars, provedores, Ollama, banco, acesso remoto |
+| `anim/README.md` | `dev` | projeto Remotion do kanji 将軍: composições por tema, flags de render e atribuição do KanjiVG |
 | `.maestri/*.md` | não versionado | estado das branches, rascunhos de PR, reviews, conflitos resolvidos |
 | `docs/ROADMAP.md` | `dev` | planejamento por fases: v1.0 do desktop, backlog do mobile, ideias futuras |
 | **`docs/CONTEXTO-GERAL.md`** | este arquivo | consolidação de tudo acima |
