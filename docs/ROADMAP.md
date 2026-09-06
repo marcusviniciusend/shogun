@@ -146,9 +146,8 @@ para comandos com imagem. É a mesma discussão de assinatura registrada no pass
 - **Geração dos contratos a partir de schema.** `shared/contracts/` está vazia; o
   plano era derivar `ts/` e `python/` de JSON Schema. Sem isso, os dois lados
   saem de sincronia — já aconteceu uma vez (`sessionId` × `session_id`).
-- **Animação do wordmark 将軍.** Existe uma composição Remotion pronta e
-  renderizada, com os traços do KanjiVG desenhados e desescritos em ordem
-  caligráfica, mas ela vive num diretório temporário e não está versionada.
+- ~~**Animação do wordmark 将軍** fora do repositório~~ → resolvido: o projeto
+  Remotion está em `anim/`, com uma composição por tema do app.
 
 ---
 
