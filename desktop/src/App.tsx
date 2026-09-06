@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 
-import indicadorUrl from "./assets/indicador-shogun.webm";
+import indicadorSumi from "./assets/indicador-sumi.webm";
+import indicadorWashi from "./assets/indicador-washi.webm";
 import { Chat } from "./components/Chat";
 import { Configuracoes } from "./components/Configuracoes";
 import { PainelAgentes } from "./components/PainelAgentes";
@@ -15,10 +16,12 @@ import {
   CONFIG_DEFAULT,
   aplicarTema,
   carregarConfig,
+  temaEfetivo,
   carregarSessionId,
   salvarConfig,
   salvarSessionId,
   type Config,
+  type Tema,
 } from "./lib/config";
 import type { AgentActionWire, MensagemChat } from "./lib/types";
 
@@ -39,8 +42,16 @@ function mensagemServidorFora(): string {
   return "Não enviei: o servidor não está respondendo. Veja o aviso no topo.";
 }
 
-export default function App() {
-  const [config, setConfig] = useState<Config>(CONFIG_DEFAULT);
+interface Props {
+  /** Tema ja lido do store antes do primeiro paint (ver main.tsx). */
+  temaInicial: Tema;
+}
+
+export default function App({ temaInicial }: Props) {
+  const [config, setConfig] = useState<Config>({
+    ...CONFIG_DEFAULT,
+    tema: temaInicial,
+  });
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [view, setView] = useState<View>("chat");
   // Chat e agentes lado a lado — toggle proprio na sidebar (ver Sidebar.tsx).
@@ -195,7 +206,11 @@ export default function App() {
             {animaMarca && (
               <video
                 className="marca-kanji-video"
-                src={indicadorUrl}
+                src={
+                  temaEfetivo(config.tema) === "sumi"
+                    ? indicadorSumi
+                    : indicadorWashi
+                }
                 autoPlay
                 loop
                 muted
@@ -241,7 +256,12 @@ export default function App() {
         </main>
       )}
 
-      {splashAtivo && <Splash onFim={() => setSplashAtivo(false)} />}
+      {splashAtivo && (
+        <Splash
+          onFim={() => setSplashAtivo(false)}
+          tema={temaEfetivo(config.tema)}
+        />
+      )}
     </div>
   );
 }

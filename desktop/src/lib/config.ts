@@ -33,6 +33,37 @@ const TEMAS: Tema[] = ["washi", "sumi", "sistema"];
  * O CSS le `data-tema`; o "washi" nao escreve atributo nenhum, porque e o que
  * o `:root` ja define — assim o app abre no tema certo antes mesmo do JS rodar.
  */
+/**
+ * Qual tema esta valendo de fato — "sistema" vira washi ou sumi conforme o SO.
+ *
+ * Serve para escolher ASSET por tema (os videos do kanji sao renderizados um
+ * para cada), coisa que CSS sozinho nao resolve.
+ */
+export function temaEfetivo(tema: Tema): "washi" | "sumi" {
+  if (tema !== "sistema") return tema;
+  return window.matchMedia("(prefers-color-scheme: dark)").matches
+    ? "sumi"
+    : "washi";
+}
+
+/**
+ * Le o tema guardado e aplica ANTES do primeiro paint.
+ *
+ * Sem isso o app abriria em washi e trocaria para sumi um instante depois —
+ * um flash branco na cara de quem escolheu escuro. Devolve o tema para quem
+ * for montar a arvore ja saber com que cor comecar.
+ */
+export async function preCarregarTema(): Promise<Tema> {
+  try {
+    const { tema } = await carregarConfig();
+    aplicarTema(tema);
+    return tema;
+  } catch {
+    // Store inacessivel: abre no padrao, sem travar a inicializacao.
+    return CONFIG_DEFAULT.tema;
+  }
+}
+
 export function aplicarTema(tema: Tema): void {
   const raiz = document.documentElement;
   if (tema === "washi") {

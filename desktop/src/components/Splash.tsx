@@ -1,7 +1,10 @@
-import splashUrl from "../assets/splash-shogun.webm";
+import splashSumi from "../assets/splash-sumi.webm";
+import splashWashi from "../assets/splash-washi.webm";
 
 interface Props {
   onFim: () => void;
+  /** Qual render do kanji usar — a cor esta gravada no video, nao no CSS. */
+  tema: "washi" | "sumi";
 }
 
 /**
@@ -11,7 +14,7 @@ interface Props {
  * menos movimento (prefers-reduced-motion) nunca chega aqui — o App nem
  * monta o splash.
  */
-export function Splash({ onFim }: Props) {
+export function Splash({ onFim, tema }: Props) {
   return (
     <div
       className="splash"
@@ -20,7 +23,7 @@ export function Splash({ onFim }: Props) {
       title="Clique para pular"
     >
       <video
-        src={splashUrl}
+        src={tema === "sumi" ? splashSumi : splashWashi}
         autoPlay
         muted
         playsInline
