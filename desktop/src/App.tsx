@@ -13,6 +13,7 @@ import {
 import { enviarComando, ErroComando, verificarSaude } from "./lib/api";
 import {
   CONFIG_DEFAULT,
+  aplicarTema,
   carregarConfig,
   carregarSessionId,
   salvarConfig,
@@ -87,6 +88,7 @@ export default function App() {
     (async () => {
       const guardada = await carregarConfig();
       setConfig(guardada);
+      aplicarTema(guardada.tema);
       setSessionId(await carregarSessionId());
       return guardada;
     })()
@@ -157,6 +159,7 @@ export default function App() {
 
   async function salvar(nova: Config) {
     setConfig(nova);
+    aplicarTema(nova.tema);
     await salvarConfig(nova);
     // URL ou token novos: o estado anterior nao diz mais nada sobre este alvo.
     await checarSaude(nova);

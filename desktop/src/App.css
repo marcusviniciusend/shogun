@@ -6,7 +6,14 @@
  * Gothic New) — e no espaco negativo no lugar de caixas e bordas.
  *
  * Paleta fechada em quatro tons (opcao "A1 washi cru"). O bengara e acento
- * RARO: aparece apenas em erro e atencao critica — nunca decorativamente.
+ * RARO: erro, atencao critica e a MARCA — nunca decoracao solta.
+ *
+ * A marca sao duas excecoes, decididas pelo Marcus:
+ *   1. o selo 将 ao lado da fala do Shogun, nos dois temas — e hanko, e hanko
+ *      e vermelho;
+ *   2. o wordmark 将軍 do cabecalho, SO no tema escuro. No claro ele fica em
+ *      tinta: sobre o washi o preto ja tem presenca suficiente, e o vermelho
+ *      competiria com o selo.
  */
 
 :root {
@@ -18,6 +25,9 @@
   --bengara: #a63d2f; /* SO erro/atencao critica */
   --linha: rgba(33, 30, 26, 0.28); /* fio de separacao */
   --linha-suave: rgba(33, 30, 26, 0.12);
+  /* Veu de tinta: superficie levemente elevada, sem virar um segundo tom. */
+  --veu: rgba(33, 30, 26, 0.05);
+  --veu-forte: rgba(33, 30, 26, 0.07);
 
   --serif: "Zen Old Mincho", "Iowan Old Style", Georgia, serif;
   --sans: "Zen Kaku Gothic New", "Segoe UI", system-ui, sans-serif;
@@ -26,6 +36,54 @@
   font-size: 15px;
   font-weight: 400;
   line-height: 1.6;
+}
+
+/*
+ * Tema Sumi (escuro).
+ *
+ * Nao e uma paleta nova: sao os MESMOS quatro tons, com os VALORES de papel e
+ * tinta trocados. `--papel` continua significando "a cor da superficie" e
+ * `--tinta` "a cor do traco" — no escuro a superficie e sumi e o traco e washi.
+ * Assim toda regra do arquivo (`background: var(--papel)`, `color:
+ * var(--tinta)`) funciona invertida sem ser reescrita.
+ *
+ * Dois tons NAO podem ser so invertidos, por medida de contraste sobre o sumi:
+ *
+ *   `--hai`     #7a7264 da 3.49:1 — abaixo do minimo AA de 4.5.
+ *               Clareado para #8f8778, sobe para 4.67:1.
+ *   `--bengara` #a63d2f da 2.63:1 — ilegivel.
+ *               Clareado para #d4664f, sobe para 4.59:1.
+ *
+ * O bengara clareado continua terroso; nao virou o vermelho puro do mockup.
+ */
+:root[data-tema="sumi"],
+:root[data-tema="sistema"] {
+  color-scheme: dark;
+
+  --papel: #211e1a; /* superficie: sumi */
+  --tinta: #ede6d4; /* traco: washi */
+  --hai: #8f8778;
+  --bengara: #d4664f;
+  --linha: rgba(237, 230, 212, 0.2);
+  --linha-suave: rgba(237, 230, 212, 0.09);
+  --veu: rgba(237, 230, 212, 0.05);
+  --veu-forte: rgba(237, 230, 212, 0.08);
+}
+
+/* "Sistema" so escurece quando o SO pede; com o SO no claro, volta ao washi. */
+@media (prefers-color-scheme: light) {
+  :root[data-tema="sistema"] {
+    color-scheme: light;
+
+    --papel: #ede6d4;
+    --tinta: #211e1a;
+    --hai: #7a7264;
+    --bengara: #a63d2f;
+    --linha: rgba(33, 30, 26, 0.28);
+    --linha-suave: rgba(33, 30, 26, 0.12);
+    --veu: rgba(33, 30, 26, 0.05);
+    --veu-forte: rgba(33, 30, 26, 0.07);
+  }
 }
 
 * {
@@ -107,12 +165,12 @@ body {
 .sidebar-item:hover:not(:disabled) {
   text-decoration: none;
   color: var(--tinta);
-  background: rgba(33, 30, 26, 0.05);
+  background: var(--veu);
 }
 
 .sidebar-item.ativa {
   color: var(--tinta);
-  background: rgba(33, 30, 26, 0.07);
+  background: var(--veu-forte);
 }
 
 .sidebar-divisor {
@@ -169,6 +227,21 @@ body {
   font-weight: 400;
   color: var(--tinta);
   font-size: 1.15rem;
+}
+
+/*
+ * No sumi o wordmark vai em bengara: sobre fundo escuro o vermelho carrega a
+ * marca sem gritar, e e o unico lugar do cabecalho com cor.
+ */
+:root[data-tema="sumi"] .marca-kanji,
+:root[data-tema="sistema"] .marca-kanji {
+  color: var(--bengara);
+}
+
+@media (prefers-color-scheme: light) {
+  :root[data-tema="sistema"] .marca-kanji {
+    color: var(--tinta);
+  }
 }
 
 /*
@@ -383,20 +456,21 @@ body {
 /*
  * Selo do Shogun — carimbo de hanko ao lado da fala.
  *
- * Cor: `--tinta`. O mockup usa vermelho (#b91c1c), que e o hanko tradicional,
- * mas a regra desta paleta e que o bengara aparece SO em erro. Um selo em todas
- * as mensagens do Shogun o tornaria decorativo e esvaziaria o unico acento.
- * Para adotar o vermelho do mockup, e trocar `--tinta` por `--bengara` nas duas
- * linhas abaixo — e ai a regra precisa ser reescrita no topo deste arquivo.
+ * Cor: `--bengara`. Hanko e vermelho — o mockup usava #b91c1c, e aqui vai no
+ * nosso tom. E excecao explicita a regra "bengara so em erro", registrada no
+ * topo deste arquivo.
+ *
+ * Contraste conferido nos dois temas: 5.07:1 no washi, 4.59:1 no sumi (o
+ * bengara clareia no escuro), ambos acima do minimo AA.
  */
 .chat-selo {
   width: 26px;
   height: 26px;
   display: grid;
   place-items: center;
-  border: 1.5px solid var(--tinta);
+  border: 1.5px solid var(--bengara);
   border-radius: 4px;
-  color: var(--tinta);
+  color: var(--bengara);
   font-family: var(--serif);
   font-size: 14px;
   font-weight: 700;
@@ -672,3 +746,49 @@ button:disabled {
     padding-top: 1.6rem;
   }
 }
+
+/* --- Seletor de tema ---------------------------------------------------- */
+
+.config-tema {
+  border: none;
+  margin: 0;
+  padding: 0;
+}
+
+.config-tema legend {
+  padding: 0 0 0.5rem;
+  font-size: 0.72rem;
+  font-weight: 500;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--hai);
+}
+
+.config-tema-opcoes {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.tema-opcao {
+  padding: 0.4rem 0.9rem;
+  border: 1px solid var(--linha);
+  border-radius: 3px;
+  background: transparent;
+  color: var(--hai);
+  font-family: inherit;
+  font-size: 0.9rem;
+  cursor: pointer;
+}
+
+.tema-opcao:hover {
+  color: var(--tinta);
+  border-color: var(--tinta);
+}
+
+/* A opcao ativa e a unica com peso de tinta — sem cor de acento. */
+.tema-opcao.ativa {
+  border-color: var(--tinta);
+  color: var(--tinta);
+  font-weight: 500;
+}
+
