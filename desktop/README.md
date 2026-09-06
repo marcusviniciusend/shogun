@@ -42,6 +42,39 @@ Nota sobre contratos: `shared/ts/index.ts` declara os campos em camelCase
 (`session_id`). Até o contrato compartilhado ser alinhado, o desktop usa tipos
 locais em `src/lib/types.ts` que espelham o fio de verdade.
 
+## Identidade visual e animações
+
+O redesenho segue minimalismo japonês ("ma"), na paleta "washi cru": fundo
+de papel claro (`#EDE6D4`), tinta sumi para texto e para o pincel do kanji
+(`#211E1A`), cinza *hai* para o secundário (`#7A7264`), e o bengara
+(`#A63D2F`) reservado **exclusivamente** a erro e atenção crítica — nunca
+decorativo. Tipografia como voz — o Shogun fala em Zen Old Mincho
+(serifa), o usuário e os controles em Zen Kaku Gothic New. Fontes
+embarcadas via fontsource, nada vem da rede.
+
+Duas animações usam o kanji 将軍 escrito a pincel (WebM com canal alpha em
+`src/assets/`, renderizados com Remotion a partir de um projeto separado,
+fora deste repositório):
+
+- **splash de abertura** — o kanji é escrito traço a traço, sustentado e
+  desfeito (~5,6s); um clique pula. `src/components/Splash.tsx`;
+- **wordmark vivo** — o kanji do cabeçalho é a versão condensada sendo
+  escrita em loop contínuo (2,2s), o tempo todo, não só durante o
+  processamento.
+
+Com `prefers-reduced-motion`, nem o splash nem os vídeos montam.
+
+A navegação vive numa barra lateral fina à esquerda (só ícones; expande no
+hover ou foco): nova conversa, Conversa, Agentes, visualização dividida e
+Configurações. Por padrão cada view ocupa a tela sozinha; o modo dividido
+(chat + agentes lado a lado) é um toggle com ícone próprio na sidebar —
+preferido a uma opção nas configurações por ficar visível, custar um
+clique e mostrar o estado ativo no próprio ícone. Clicar em Conversa ou
+Agentes com o dividido ativo volta para a view única daquele item.
+
+Os traços do kanji vêm do projeto [KanjiVG](http://kanjivg.tagaini.net)
+(Ulrich Apel), licença CC BY-SA 3.0 — atribuição obrigatória mantida aqui.
+
 ## Estrutura
 
 ```
