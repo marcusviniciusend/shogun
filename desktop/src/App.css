@@ -125,6 +125,15 @@ body {
 }
 
 @media (prefers-reduced-motion: reduce) {
+  /*
+   * Sem movimento: o samurai congela num quadro e o selo para de pulsar.
+   * O texto "Pensando…" continua, entao a informacao nao se perde.
+   */
+  .samurai,
+  .chat-mensagem.pensando .chat-selo {
+    animation: none;
+  }
+
   .sidebar,
   .sidebar-item span {
     transition: none;
@@ -369,6 +378,84 @@ body {
   font-size: 0.9rem;
   line-height: 1.6;
   color: var(--bengara);
+}
+
+/*
+ * Selo do Shogun — carimbo de hanko ao lado da fala.
+ *
+ * Cor: `--tinta`. O mockup usa vermelho (#b91c1c), que e o hanko tradicional,
+ * mas a regra desta paleta e que o bengara aparece SO em erro. Um selo em todas
+ * as mensagens do Shogun o tornaria decorativo e esvaziaria o unico acento.
+ * Para adotar o vermelho do mockup, e trocar `--tinta` por `--bengara` nas duas
+ * linhas abaixo — e ai a regra precisa ser reescrita no topo deste arquivo.
+ */
+.chat-selo {
+  width: 26px;
+  height: 26px;
+  display: grid;
+  place-items: center;
+  border: 1.5px solid var(--tinta);
+  border-radius: 4px;
+  color: var(--tinta);
+  font-family: var(--serif);
+  font-size: 14px;
+  font-weight: 700;
+  /* Carimbo torto de proposito: selo batido a mao, nao alinhado por software. */
+  transform: rotate(-6deg);
+}
+
+/* Pulso discreto so enquanto pensa — em repouso o selo fica parado. */
+.chat-mensagem.pensando .chat-selo {
+  animation: selo-pulsa 1.8s ease-in-out infinite;
+}
+
+@keyframes selo-pulsa {
+  0%,
+  100% {
+    transform: rotate(-6deg) scale(1);
+  }
+  50% {
+    transform: rotate(-6deg) scale(1.04);
+  }
+}
+
+/*
+ * O samurai correndo no lugar de "Pensando…".
+ *
+ * Sprite de 7 quadros, folha de 1155x195 reduzida para 238x40 — cada quadro
+ * fica em 34x40. `steps(7)` corta o movimento em quadros discretos em vez de
+ * interpolar, que e o que faz parecer pixel art animada e nao um slide.
+ */
+.pensando-linha {
+  display: flex;
+  align-items: flex-end;
+  gap: 10px;
+  height: 44px;
+}
+
+.samurai {
+  width: 34px;
+  height: 40px;
+  background-repeat: no-repeat;
+  background-position: 0 0;
+  background-size: 238px 40px;
+  image-rendering: pixelated;
+  animation: samurai-passos 0.7s steps(7) infinite;
+}
+
+@keyframes samurai-passos {
+  from {
+    background-position: 0 0;
+  }
+  to {
+    background-position: -238px 0;
+  }
+}
+
+.pensando-texto {
+  padding-bottom: 4px;
+  font-size: 0.82rem;
+  color: var(--hai);
 }
 
 .chat-mensagem.pensando p {

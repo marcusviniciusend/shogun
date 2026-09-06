@@ -1,6 +1,22 @@
 import { useEffect, useRef, useState } from "react";
 
+import samuraiSprite from "../assets/samurai-run7.png";
 import type { MensagemChat } from "../lib/types";
+
+/**
+ * Selo do Shogun — o 将 carimbado ao lado da fala dele.
+ *
+ * Substitui o rotulo "Shogun" escrito por extenso: quem fala se reconhece pelo
+ * selo, nao por uma etiqueta. O nome continua no `aria-label`, para quem le por
+ * leitor de tela.
+ */
+function Selo() {
+  return (
+    <span className="chat-selo" role="img" aria-label="Shogun">
+      将
+    </span>
+  );
+}
 
 interface Props {
   mensagens: MensagemChat[];
@@ -48,14 +64,32 @@ export function Chat({
             key={i}
             className={`chat-mensagem ${m.autor} ${m.erro ? "erro" : ""}`}
           >
-            <span className="chat-autor">{m.autor === "usuario" ? "Você" : "Shogun"}</span>
+            {m.autor === "usuario" ? (
+              <span className="chat-autor">Você</span>
+            ) : (
+              <Selo />
+            )}
             <p>{m.texto}</p>
           </div>
         ))}
         {carregando && (
           <div className="chat-mensagem shogun pensando">
-            <span className="chat-autor">Shogun</span>
-            <p>Pensando… (a primeira resposta pode demorar alguns segundos)</p>
+            <Selo />
+            {/*
+              O samurai correndo no lugar de "Pensando…" escrito. Sprite de 7
+              quadros animado por `steps(7)` — sem JS, sem timer.
+            */}
+            <div className="pensando-linha">
+              <span
+                className="samurai"
+                role="img"
+                aria-label="samurai correndo"
+                style={{ backgroundImage: `url(${samuraiSprite})` }}
+              />
+              <span className="pensando-texto">
+                Pensando… (a primeira resposta pode demorar alguns segundos)
+              </span>
+            </div>
           </div>
         )}
         <div ref={fimRef} />
