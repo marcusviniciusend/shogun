@@ -30,7 +30,8 @@ export default function App() {
   return (
     <SafeAreaProvider>
       <SafeAreaView style={estilos.app} edges={["top", "bottom"]}>
-        <StatusBar style="light" />
+        {/* icones escuros: a barra do sistema fica sobre o papel claro */}
+        <StatusBar style="dark" />
         <View style={estilos.cabecalho}>
           <Text style={estilos.titulo}>Shogun</Text>
         </View>
