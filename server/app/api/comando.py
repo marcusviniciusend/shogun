@@ -5,7 +5,12 @@ import logging
 from fastapi import APIRouter, Depends, HTTPException, status
 from starlette.concurrency import run_in_threadpool
 
-from app.core.contracts import AgentAction, CommandRequest, CommandResponse
+from app.core.contracts import (
+    AgentAction,
+    ClientInstruction,
+    CommandRequest,
+    CommandResponse,
+)
 from app.core.config import settings
 from app.core.llm import (
     ComandoInterpretado,
@@ -128,20 +133,36 @@ async def _consultar_pendencias(
 
 
 def _abrir_app(intencao: ComandoInterpretado) -> tuple[str, AgentAction]:
-    """Placeholder da ação ``abrir_app``.
+    """Delegação da ação ``abrir_app`` ao cliente.
 
-    TODO: o cliente (desktop/mobile) é quem tem acesso ao sistema operacional.
-    O servidor deve devolver a ação e o cliente executa a abertura — definir esse
-    contrato junto com o agente-desktop.
+    O servidor pode rodar em outra máquina e não tem acesso ao SO do usuário:
+    quem abre o app é o cliente, seguindo a `ClientInstruction` dentro da
+    `AgentAction`. Cliente que ainda não executa instruções apenas exibe a
+    action como metadado; cliente que não suporta o app pedido responde com
+    `fallback_text`. Nada é executado aqui.
     """
     app_alvo = str(intencao.parametros.get("app", "")).strip()
-    detalhe = f"abrir_app ainda não implementado (app={app_alvo or 'desconhecido'})"
-    fala = (
-        f"Ainda não consigo abrir o {app_alvo}, Marcus — essa ação está em construção."
-        if app_alvo
-        else "Ainda não consigo abrir aplicativos, Marcus — essa ação está em construção."
+    if not app_alvo:
+        return (
+            "Não entendi qual aplicativo abrir, Marcus — pode repetir com o nome dele?",
+            AgentAction(
+                agent="sistema", status="error", detail="abrir_app sem parâmetro app"
+            ),
+        )
+    instrucao = ClientInstruction(
+        type="open_app",
+        app=app_alvo,
+        fallback_text=f"Não consegui abrir o {app_alvo} neste aparelho, Marcus.",
     )
-    return fala, AgentAction(agent="sistema", status="error", detail=detalhe)
+    return (
+        f"Pedi para este aparelho abrir o {app_alvo}, Marcus.",
+        AgentAction(
+            agent="sistema",
+            status="ok",
+            detail=f"execução delegada ao cliente (app={app_alvo})",
+            instruction=instrucao,
+        ),
+    )
 
 
 @router.post("/comando", response_model=CommandResponse)
