@@ -74,6 +74,20 @@ def test_acao_abrir_app_delega_ao_cliente(client, corpo, auth, llm):
     }
 
 
+def test_abrir_app_sem_parametro_nao_gera_instrucao(client, corpo, auth, llm):
+    """LLM sem `app` nos parâmetros: erro explicado, nenhuma instrução no fio."""
+    llm.resposta = ComandoInterpretado(
+        acao="abrir_app", parametros={}, resposta_falada="ok"
+    )
+
+    dados = client.post("/comando", json=corpo, headers=auth).json()
+
+    assert "qual aplicativo" in dados["text"]
+    acao = dados["actions"][0]
+    assert acao["status"] == "error"
+    assert acao["instruction"] is None
+
+
 def test_comando_vazio_retorna_422(client, corpo, auth):
     resposta = client.post("/comando", json={**corpo, "text": "   "}, headers=auth)
     assert resposta.status_code == 422
