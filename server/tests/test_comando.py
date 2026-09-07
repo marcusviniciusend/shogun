@@ -45,11 +45,18 @@ def test_acao_consultar_pendencias_lista_itens(client, corpo, auth, llm):
     # A de maior prioridade vem primeiro, mesmo o contrato não prometendo ordem.
     assert dados["text"].index("Assinar contrato") < dados["text"].index("Ligar pro")
     assert dados["actions"] == [
-        {"agent": "pendencias", "status": "ok", "detail": "2 pendências"}
+        {
+            "agent": "pendencias",
+            "status": "ok",
+            "detail": "2 pendências",
+            # Sem execução delegada: a chave vem no fio, mas nula.
+            "instruction": None,
+        }
     ]
 
 
-def test_acao_abrir_app_e_placeholder(client, corpo, auth, llm):
+def test_acao_abrir_app_delega_ao_cliente(client, corpo, auth, llm):
+    """O servidor não executa nada: devolve a ClientInstruction na action."""
     llm.resposta = ComandoInterpretado(
         acao="abrir_app", parametros={"app": "Spotify"}, resposta_falada="ok"
     )
@@ -57,8 +64,28 @@ def test_acao_abrir_app_e_placeholder(client, corpo, auth, llm):
     dados = client.post("/comando", json=corpo, headers=auth).json()
 
     assert "Spotify" in dados["text"]
-    assert dados["actions"][0]["status"] == "error"
-    assert "não implementado" in dados["actions"][0]["detail"]
+    acao = dados["actions"][0]
+    assert acao["agent"] == "sistema"
+    assert acao["status"] == "ok"
+    assert acao["instruction"] == {
+        "type": "open_app",
+        "app": "Spotify",
+        "fallback_text": "Não consegui abrir o Spotify neste aparelho, Marcus.",
+    }
+
+
+def test_abrir_app_sem_parametro_nao_gera_instrucao(client, corpo, auth, llm):
+    """LLM sem `app` nos parâmetros: erro explicado, nenhuma instrução no fio."""
+    llm.resposta = ComandoInterpretado(
+        acao="abrir_app", parametros={}, resposta_falada="ok"
+    )
+
+    dados = client.post("/comando", json=corpo, headers=auth).json()
+
+    assert "qual aplicativo" in dados["text"]
+    acao = dados["actions"][0]
+    assert acao["status"] == "error"
+    assert acao["instruction"] is None
 
 
 def test_comando_vazio_retorna_422(client, corpo, auth):

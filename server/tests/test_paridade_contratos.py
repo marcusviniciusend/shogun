@@ -23,16 +23,26 @@ Limitacoes conhecidas do parse estatico:
   ela e obrigatoria.
 """
 
+import inspect
 import re
 from pathlib import Path
 from typing import Literal, get_args, get_origin
 
-from app.core.contracts import AgentAction, CommandRequest, CommandResponse
+from pydantic import BaseModel
 
+import app.core.contracts  # noqa: F401 — poe a raiz do monorepo no sys.path
+import shared.python as _shared
+
+# Descoberta automatica: todo BaseModel definido em shared/python entra na
+# comparacao. Um contrato novo criado so na ponta Python (ou so na TS) e
+# acusado por test_mesmos_contratos_dos_dois_lados sem ninguem lembrar de
+# atualizar uma lista aqui.
 MODELOS_PYTHON = {
-    "AgentAction": AgentAction,
-    "CommandRequest": CommandRequest,
-    "CommandResponse": CommandResponse,
+    nome: obj
+    for nome, obj in vars(_shared).items()
+    if inspect.isclass(obj)
+    and issubclass(obj, BaseModel)
+    and obj.__module__ == _shared.__name__
 }
 
 INDEX_TS = Path(__file__).resolve().parents[2] / "shared" / "ts" / "index.ts"

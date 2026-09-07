@@ -12,6 +12,11 @@ _RAIZ = Path(__file__).resolve().parents[3]
 if str(_RAIZ) not in sys.path:
     sys.path.insert(0, str(_RAIZ))
 
-from shared.python import AgentAction, CommandRequest, CommandResponse  # noqa: E402
+from shared.python import (  # noqa: E402
+    AgentAction,
+    ClientInstruction,
+    CommandRequest,
+    CommandResponse,
+)
 
-__all__ = ["AgentAction", "CommandRequest", "CommandResponse"]
+__all__ = ["AgentAction", "ClientInstruction", "CommandRequest", "CommandResponse"]

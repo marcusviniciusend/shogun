@@ -218,7 +218,7 @@ e em `docs/DATABASE.md`.
 | --- | --- |
 | `conversar` | devolve a resposta livre do modelo |
 | `consultar_pendencias` | consulta o `PendenciasProvider` injetado |
-| `abrir_app` | placeholder — TODO, a execução caberá ao cliente |
+| `abrir_app` | delegada ao cliente: a action vem com `instruction` estruturada (`ClientInstruction`, em `shared/`) e quem abre o app é o desktop/mobile; sem suporte ao app pedido, o cliente responde com `fallback_text` |
 
 ### Injeção de dependências
 
