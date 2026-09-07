@@ -112,5 +112,61 @@ class MessageUso(Base):
     )
 
 
+class Agente(Base):
+    """Um agente sob observação do orquestrador do Shogun.
+
+    Linha própria, e não coluna derivada de `pendencias`, porque o status de um
+    agente é independente das pendências dele: `atualizar_status` funciona sem
+    pendência registrada, e limpar a fila não apaga o que se sabe do agente —
+    semântica que o `ShogunOrquestradorProvider` já tinha em memória.
+    """
+
+    __tablename__ = "agentes"
+
+    # Id vem do orquestrador (ex.: slug do agente), não é gerado aqui.
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    # Nulo quando o agente só teve status atualizado, sem pendência registrada
+    # (o nome chega junto com a primeira pendência).
+    nome: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    # Valores de `StatusAgente` (domínio). String, e não Enum do SQLAlchemy:
+    # variante nova no domínio não pode exigir migração de schema.
+    status: Mapped[str] = mapped_column(String(16), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, default=agora_utc, onupdate=agora_utc
+    )
+
+    pendencias: Mapped[list["PendenciaAgente"]] = relationship(
+        back_populates="agente", cascade="all, delete-orphan"
+    )
+
+
+class PendenciaAgente(Base):
+    """Uma pendência reportada por um agente — espelho persistente de
+    `app.domain.Pendencia` (`agente_nome` vive em `agentes.nome`)."""
+
+    __tablename__ = "pendencias"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    agente_id: Mapped[str] = mapped_column(
+        String(64), ForeignKey("agentes.id", ondelete="CASCADE"), nullable=False
+    )
+    descricao: Mapped[str] = mapped_column(Text, nullable=False)
+    # Status da pendência no momento do registro; o status corrente do agente
+    # fica em `agentes.status`.
+    status: Mapped[str] = mapped_column(String(16), nullable=False)
+    prioridade: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    # `Pendencia.timestamp` do domínio, em UTC naive como todo o banco.
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=agora_utc)
+
+    agente: Mapped[Agente] = relationship(back_populates="pendencias")
+
+    __table_args__ = (
+        # As duas consultas do provider: limpar/agrupar por agente e a listagem
+        # global ordenada por urgência.
+        Index("ix_pendencias_agente_id", "agente_id"),
+        Index("ix_pendencias_prioridade_created_at", "prioridade", "created_at"),
+    )
+
+
 ROLE_USUARIO = "user"
 ROLE_ASSISTENTE = "assistant"
