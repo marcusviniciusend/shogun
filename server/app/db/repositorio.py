@@ -2,11 +2,20 @@
 
 import uuid
 from collections.abc import Sequence
+from datetime import datetime
+from typing import NamedTuple
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session as DbSession
 
-from app.db.models import ROLE_ASSISTENTE, ROLE_USUARIO, Message, Session, agora_utc
+from app.db.models import (
+    ROLE_ASSISTENTE,
+    ROLE_USUARIO,
+    Message,
+    MessageUso,
+    Session,
+    agora_utc,
+)
 
 
 def novo_id_de_sessao() -> str:
@@ -87,6 +96,61 @@ class RepositorioConversas:
 
     def registrar_assistente(self, session_id: str, content: str) -> Message:
         return self.registrar_mensagem(session_id, ROLE_ASSISTENTE, content)
+
+    # -- uso de tokens -----------------------------------------------------
+
+    def registrar_uso(
+        self,
+        message_id: int,
+        provider: str,
+        input_tokens: int,
+        output_tokens: int,
+    ) -> MessageUso:
+        uso = MessageUso(
+            message_id=message_id,
+            provider=provider,
+            input_tokens=input_tokens,
+            output_tokens=output_tokens,
+        )
+        self._db.add(uso)
+        self._db.commit()
+        return uso
+
+    def consumo_por_provider(
+        self,
+        inicio: datetime | None = None,
+        fim: datetime | None = None,
+    ) -> list["ConsumoProvider"]:
+        """Tokens somados por provedor no período. Datas em UTC naive.
+
+        `inicio` inclusivo e `fim` exclusivo — o par (dia, dia+1) cobre um dia
+        inteiro sem depender de microssegundo final. `None` = sem corte.
+        """
+        consulta = select(
+            MessageUso.provider,
+            func.count(MessageUso.id),
+            func.coalesce(func.sum(MessageUso.input_tokens), 0),
+            func.coalesce(func.sum(MessageUso.output_tokens), 0),
+        ).group_by(MessageUso.provider)
+
+        if inicio is not None:
+            consulta = consulta.where(MessageUso.created_at >= inicio)
+        if fim is not None:
+            consulta = consulta.where(MessageUso.created_at < fim)
+
+        return [
+            ConsumoProvider(provider, int(mensagens), int(entrada), int(saida))
+            for provider, mensagens, entrada, saida in self._db.execute(consulta)
+        ]
+
+
+class ConsumoProvider(NamedTuple):
+    """Agregado de consumo de um provedor num período."""
+
+    provider: str
+    mensagens: int
+    input_tokens: int
+    output_tokens: int
 
 
 def historico_como_texto(mensagens: Sequence[Message]) -> list[tuple[str, str]]:
