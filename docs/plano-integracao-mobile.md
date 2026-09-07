@@ -101,6 +101,7 @@ sequência — **primeiro digitar e ler, depois STT/TTS**. Do
 - **Texto antes de voz**: a tela de chat funciona completa por texto. STT/TTS
   entram depois, como camada sobre o mesmo `enviarComando` — a integração não
   muda.
+- **Exibição de `actions`** como metadado da mensagem — detalhado no item 6.
 - **Erros traduzidos para o usuário**, um tipo de erro único (`ApiError`, já
   no esqueleto, análogo ao `ErroComando` do desktop), com a causa crua indo
   para o console/log: 401/403 distingue "token recusado" de "token não
@@ -120,7 +121,39 @@ CORS, sem plugin), a config vive em AsyncStorage/SecureStore em vez do
 tauri-plugin-store, e a URL default não existe — no celular não há
 `localhost` útil, então a Config exige o IP Tailscale na primeira abertura.
 
-## 6. Ordem de implementação proposta (pós-descongelamento)
+## 6. `AgentAction` e `abrir_app` — o que o mobile faz com `actions`
+
+Situação atual do contrato: `CommandResponse.actions` é **informativo**, não
+executável. `AgentAction` carrega `agent`, `status` e `detail` (texto livre) —
+nada que instrua o cliente a fazer algo. E `abrir_app` hoje é resolvido
+inteiramente no servidor como placeholder (`server/app/api/comando.py`): a
+resposta falada já diz "essa ação está em construção" e a action vem com
+`status: "error"`. **Não há nada para o cliente executar hoje.**
+
+O plano do mobile, portanto:
+
+- **Renderizar `actions` como metadado discreto** da mensagem no chat (nome do
+  agente + status + detail quando houver), com bengara reservado a
+  `status: "error"`, seguindo a identidade visual. Nunca interpretar `detail`
+  como instrução — é texto para humano.
+- **`abrir_app` não entra em nenhum passo da ordem do item 7.** O TODO do
+  servidor prevê delegar a execução ao cliente, mas esse contrato ainda não
+  existe e a decisão é do servidor/`shared/` — quando for desenhado, precisará
+  de um campo **estruturado** novo (ex.: uma instrução com o nome do app),
+  porque extrair o alvo do `detail` por parsing seria acoplar o cliente a uma
+  string de log.
+- Registro antecipado da restrição do lado mobile, para quem for desenhar o
+  contrato: no celular "abrir app" é deep link (`Linking.openURL`/`expo-linking`),
+  e tanto o iOS (`LSApplicationQueriesSchemes`) quanto o Android 11+
+  (`<queries>` no manifest) exigem declarar os schemes de antemão. Ou seja, o
+  mobile só conseguirá abrir uma **lista curada** de apps conhecidos; alvo fora
+  da lista vira resposta falada explicando que não dá. É diferente do desktop,
+  que pode lançar processos arbitrários.
+
+Nada disso bloqueia os passos 1–4 abaixo — a integração texto-primeiro
+funciona por completo com `actions` apenas exibido.
+
+## 7. Ordem de implementação proposta (pós-descongelamento)
 
 1. **Token no SecureStore** com migração do AsyncStorage (item 3) — é correção
    do esqueleto, vem antes de qualquer feature.
