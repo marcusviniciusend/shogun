@@ -14,6 +14,31 @@
         { "url": "http://**:*" },
         { "url": "https://**:*" }
       ]
+    },
+    {
+      "identifier": "shell:allow-spawn",
+      "allow": [
+        {
+          "name": "abrir-navegador",
+          "cmd": "explorer.exe",
+          "args": ["https://www.google.com"]
+        },
+        {
+          "name": "abrir-explorer",
+          "cmd": "explorer.exe",
+          "args": false
+        },
+        {
+          "name": "abrir-calculadora",
+          "cmd": "calc.exe",
+          "args": false
+        },
+        {
+          "name": "abrir-spotify",
+          "cmd": "explorer.exe",
+          "args": ["spotify:"]
+        }
+      ]
     }
   ]
 }

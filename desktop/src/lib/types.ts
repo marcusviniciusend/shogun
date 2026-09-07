@@ -12,6 +12,7 @@
 
 export type {
   AgentAction as AgentActionWire,
+  ClientInstruction as ClientInstructionWire,
   CommandRequest as CommandRequestWire,
   CommandResponse as CommandResponseWire,
 } from "../../../shared/ts";

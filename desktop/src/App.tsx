@@ -17,6 +17,7 @@ import {
   ErroComando,
   verificarSaude,
 } from "./lib/api";
+import { executarInstrucoes } from "./lib/instrucoes";
 import {
   CONFIG_DEFAULT,
   aplicarTema,
@@ -182,7 +183,10 @@ export default function App({ temaInicial }: Props) {
     try {
       const resposta = await chamarComReenvio(texto);
       await atualizarSessao(resposta.session_id);
-      setMensagens((m) => [...m, { autor: "shogun", texto: resposta.text }]);
+      // Instrucao delegada (ex.: open_app) executa ANTES de exibir: sucesso
+      // mostra o text do servidor, falha mostra o fallback_text — nunca os dois.
+      const textoFinal = await executarInstrucoes(resposta);
+      setMensagens((m) => [...m, { autor: "shogun", texto: textoFinal }]);
       // Se o comando digitado tambem consultou pendencias, aproveita no painel.
       if (resposta.actions.length > 0) {
         setAcoesAgentes(resposta.actions);
@@ -225,7 +229,9 @@ export default function App({ temaInicial }: Props) {
       const resposta = await chamarComReenvio(COMANDO_PENDENCIAS);
       await atualizarSessao(resposta.session_id);
       setAcoesAgentes(resposta.actions);
-      setResumoAgentes(resposta.text);
+      // Mesma regra do chat: se vier instrucao, o texto exibido depende do
+      // resultado da execucao.
+      setResumoAgentes(await executarInstrucoes(resposta));
     } catch (e) {
       setErroAgentes(registrarFalha(e));
     } finally {
