@@ -69,8 +69,7 @@ function traduzirFalhaDeRede(erro: unknown, serverUrl: string): string {
 export async function verificarSaude(config: Config): Promise<void> {
   // Limite proprio: sem ele, um servidor que aceita a conexao e nao responde
   // deixaria a verificacao pendurada e o indicador nunca sairia de
-  // "verificando". Vale so para o /health; o POST /comando segue sem limite de
-  // resposta (item 2 do levantamento, ainda em aberto).
+  // "verificando".
   const cancelar = new AbortController();
   const limite = setTimeout(() => cancelar.abort(), 4000);
 
@@ -98,6 +97,14 @@ export async function verificarSaude(config: Config): Promise<void> {
   }
 }
 
+/**
+ * Limite do POST /comando. Bem mais folgado que o do /health: a resposta passa
+ * por um LLM, e um modelo local carregando pode levar dezenas de segundos na
+ * primeira chamada. O que o limite barra e o servidor que aceitou a conexao e
+ * travou de vez — sem ele, a UI ficaria pendurada em "Pensando…" para sempre.
+ */
+const TIMEOUT_COMANDO_MS = 60_000;
+
 export async function enviarComando(
   config: Config,
   texto: string,
@@ -116,18 +123,35 @@ export async function enviarComando(
     headers.Authorization = `Bearer ${config.token}`;
   }
 
+  const cancelar = new AbortController();
+  const limite = setTimeout(() => cancelar.abort(), TIMEOUT_COMANDO_MS);
+
   let resposta: Response;
   try {
     resposta = await fetch(`${config.serverUrl}/comando`, {
       method: "POST",
       headers,
       body: JSON.stringify(corpo),
+      signal: cancelar.signal,
     });
   } catch (e) {
     // A excecao crua vai para o console: e o unico lugar onde a causa real
     // sobrevive, e foi a falta dela que obrigou a diagnosticar com netstat.
     console.error("[shogun] POST /comando falhou:", e);
+    // Abort nosso e estouro do limite, nao falha de rede: o servidor aceitou o
+    // comando e nao terminou de responder — mensagem propria, para nao
+    // confundir com servidor fora do ar.
+    if (cancelar.signal.aborted) {
+      throw new ErroComando(
+        `O servidor recebeu o comando mas nao respondeu em ` +
+          `${TIMEOUT_COMANDO_MS / 1000} segundos. Ele pode estar travado ou ` +
+          "sobrecarregado — tente de novo em instantes.",
+        e,
+      );
+    }
     throw new ErroComando(traduzirFalhaDeRede(e, config.serverUrl), e);
+  } finally {
+    clearTimeout(limite);
   }
 
   // Autenticacao chega como status HTTP, nao como excecao: o servidor
