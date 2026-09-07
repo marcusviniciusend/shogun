@@ -36,6 +36,31 @@ export interface CommandResponse {
   actions: AgentAction[];
 }
 
+/**
+ * Instrucao executavel que o servidor delega ao cliente.
+ *
+ * O servidor pode rodar em outra maquina e nao tem acesso ao SO do usuario;
+ * quem executa e o cliente. `type` discrimina a instrucao (hoje so
+ * `open_app`). Um cliente que nao suporta o alvo — no mobile so uma lista
+ * curada de apps e viavel (`Linking.openURL` exige schemes declarados em
+ * `LSApplicationQueriesSchemes`/`<queries>`) — nao executa nada e usa
+ * `fallback_text` como resposta ao usuario.
+ */
+export interface ClientInstruction {
+  type: "open_app";
+  /**
+   * Nome do aplicativo como o LLM interpretou (ex.: "Spotify"). O mapeamento
+   * nome -> executavel/scheme e responsabilidade de cada cliente.
+   */
+  app: string;
+  /**
+   * Fala/exibicao quando o cliente nao consegue executar (app fora da lista
+   * curada, falha ao abrir). Vem pronta do servidor, para o cliente nao ter
+   * que redigir resposta nenhuma.
+   */
+  fallback_text: string;
+}
+
 export interface AgentAction {
   agent: string;
   status: "ok" | "error";
@@ -45,4 +70,10 @@ export interface AgentAction {
    * OpenAPI do servidor confirma: `detail: ["string", "null"]`.
    */
   detail?: string | null;
+  /**
+   * Preenchida quando a acao pede execucao no aparelho do usuario. Clientes
+   * que ainda nao executam instrucoes apenas exibem a action como metadado —
+   * nunca interpretar `detail` (texto para humano) como instrucao.
+   */
+  instruction?: ClientInstruction | null;
 }

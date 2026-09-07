@@ -45,7 +45,13 @@ def test_acao_consultar_pendencias_lista_itens(client, corpo, auth, llm):
     # A de maior prioridade vem primeiro, mesmo o contrato não prometendo ordem.
     assert dados["text"].index("Assinar contrato") < dados["text"].index("Ligar pro")
     assert dados["actions"] == [
-        {"agent": "pendencias", "status": "ok", "detail": "2 pendências"}
+        {
+            "agent": "pendencias",
+            "status": "ok",
+            "detail": "2 pendências",
+            # Sem execução delegada: a chave vem no fio, mas nula.
+            "instruction": None,
+        }
     ]
 
 
