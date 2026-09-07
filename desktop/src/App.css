@@ -454,6 +454,16 @@ body {
 }
 
 /*
+ * "Tentar de novo" dentro da bolha de erro. Neutro de proposito: o bengara e
+ * da MENSAGEM de erro; a acao de recuperacao nao e erro.
+ */
+.chat-tentar {
+  margin-top: 0.45rem;
+  font-size: 0.78rem;
+  letter-spacing: 0.06em;
+}
+
+/*
  * Selo do Shogun — carimbo de hanko ao lado da fala.
  *
  * Cor: `--bengara`. Hanko e vermelho — o mockup usava #b91c1c, e aqui vai no
