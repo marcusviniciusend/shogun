@@ -22,4 +22,9 @@ export interface MensagemChat {
   texto: string;
   /** Presente quando a mensagem e um erro de comunicacao, nao uma resposta. */
   erro?: boolean;
+  /**
+   * O comando que falhou, guardado na propria bolha de erro: e o que o botao
+   * "Tentar de novo" reenvia sem o usuario redigitar.
+   */
+  reenvio?: string;
 }
