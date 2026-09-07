@@ -38,7 +38,8 @@ a camada HTTP.
 
 ## Schema
 
-Duas tabelas. A regra do corte: só entra campo que algum passo do fluxo precisa.
+A regra do corte: só entra campo que algum passo do fluxo (ou um provedor do
+domínio) precisa.
 
 ### `sessions`
 
@@ -100,6 +101,41 @@ Cada API reporta a medição num campo próprio: `usage.input_tokens` /
 `eval_count` no Ollama (que omite o primeiro quando o prompt veio inteiro do
 cache — gravado como 0). Medição ausente não derruba o comando: a mensagem só
 fica sem linha aqui.
+
+### `agentes`
+
+Um agente sob observação do orquestrador do Shogun. Sustenta o
+`ShogunOrquestradorProvider` persistente (revisão `b8d42a6c91e0`); o acesso é o
+`RepositorioPendencias`, injetado no provider — o domínio nunca vê linha de
+tabela.
+
+| Campo | Tipo | Papel |
+| --- | --- | --- |
+| `id` | TEXT (PK) | id do agente, definido pelo orquestrador |
+| `nome` | TEXT (nulo) | nome de exibição; nulo até a primeira pendência (o `atualizar_status` não o conhece) |
+| `status` | TEXT | valor de `StatusAgente` — string, não Enum de banco: variante nova no domínio não pode exigir migração |
+| `updated_at` | TIMESTAMP | última mudança de status/nome |
+
+Linha própria, e não coluna derivada de `pendencias`: o status é independente
+das pendências (atualizável sem pendência registrada, e preservado quando a
+fila é limpa) — a mesma semântica que o provider tinha em memória.
+
+### `pendencias`
+
+Uma pendência reportada por um agente — o espelho persistente de
+`app.domain.Pendencia` (`agente_nome` vive em `agentes.nome`).
+
+| Campo | Tipo | Papel |
+| --- | --- | --- |
+| `id` | INTEGER (PK, autoincrement) | desempate determinístico da listagem |
+| `agente_id` | TEXT (FK → `agentes.id`, CASCADE) | quem reportou |
+| `descricao` | TEXT | a pendência em uma frase |
+| `status` | TEXT | status **no momento do registro**; o corrente fica em `agentes.status` |
+| `prioridade` | INTEGER | maior = mais urgente |
+| `created_at` | TIMESTAMP | o `Pendencia.timestamp` do domínio, UTC naive como todo o banco (aware é convertido na escrita; a leitura devolve aware UTC) |
+
+Índices: `agente_id` (limpeza por agente) e `(prioridade, created_at)` (a
+listagem global "mais urgentes primeiro").
 
 ## Rastreamento de consumo — onde vive a tabela de preços
 
