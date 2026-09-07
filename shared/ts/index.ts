@@ -45,6 +45,19 @@ export interface CommandResponse {
  * curada de apps e viavel (`Linking.openURL` exige schemes declarados em
  * `LSApplicationQueriesSchemes`/`<queries>`) — nao executa nada e usa
  * `fallback_text` como resposta ao usuario.
+ *
+ * Regra de consumo (relacao com `CommandResponse.text`): o cliente tenta
+ * executar ANTES de falar. Sucesso: fala `text`. Falha ou app nao suportado:
+ * fala `fallback_text` EM VEZ de `text` — nunca os dois, senao o TTS anuncia
+ * "Pedi para abrir o X" e se contradiz em seguida.
+ *
+ * Convencao para variantes futuros: todo novo `type` tambem carrega
+ * `fallback_text`, para um cliente antigo sempre ter o que responder diante
+ * de uma instrucao que nao reconhece.
+ *
+ * Invariante de seguranca: o servidor nunca envia URI, scheme ou comando
+ * executavel — so o NOME do app. O mapeamento nome -> executavel/deep link e
+ * sempre do cliente, entao o LLM nao consegue apontar para um alvo arbitrario.
  */
 export interface ClientInstruction {
   type: "open_app";
@@ -74,6 +87,11 @@ export interface AgentAction {
    * Preenchida quando a acao pede execucao no aparelho do usuario. Clientes
    * que ainda nao executam instrucoes apenas exibem a action como metadado —
    * nunca interpretar `detail` (texto para humano) como instrucao.
+   *
+   * Com instruction preenchida, `status: "ok"` significa DELEGACAO FEITA, nao
+   * app aberto: o historico da sessao registra ok mesmo que o cliente caia no
+   * `fallback_text`. Divergencia aceitavel na v1; um eventual POST
+   * /acao-resultado e extensao futura, nao pendencia deste contrato.
    */
   instruction?: ClientInstruction | null;
 }
