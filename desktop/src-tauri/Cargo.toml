@@ -22,6 +22,9 @@ tauri = { version = "2", features = [] }
 # fetch via Rust: evita CORS do webview e permite apontar para qualquer host
 # (localhost ou IP Tailscale) sem configurar SHOGUN_ALLOWED_ORIGINS no servidor
 tauri-plugin-http = "2"
+# executa a ClientInstruction open_app; o escopo em capabilities/default.json
+# fixa executavel e args por app — nada fora do mapa curado roda
+tauri-plugin-shell = "2"
 tauri-plugin-store = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
