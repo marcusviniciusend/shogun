@@ -4,7 +4,7 @@
 > surgirem. Quando divergir do código, o código vence — e este arquivo precisa
 > ser corrigido.
 >
-> Última atualização: 2026-09-05.
+> Última atualização: 2026-09-07.
 
 ---
 
@@ -17,8 +17,9 @@ isso; o que falta é sobretudo do lado do cliente.
 
 **Servidor multi-provider de LLM**
 `POST /comando` com autenticação Bearer, `422` para comando vazio e `503` quando
-o modelo cai. A interpretação fica atrás do `Protocol` `LLMProvider`, com quatro
-implementações — `claude`, `deepseek`, `openai_mini` e `ollama` (local) — e
+o modelo cai. A interpretação fica atrás do `Protocol` `LLMProvider`, com cinco
+implementações — `claude`, `deepseek`, `openai_mini`, `ollama` (local) e
+`deterministico` (palavras-chave, sem chave de API, nunca indisponível) — e
 `FallbackLLMProvider` para quando o principal falha. `SYSTEM_PROMPT` e
 `ESQUEMA_COMANDO` são compartilhados por todos: trocar de modelo não muda quem o
 Shogun é. Escolher provedor e fallback é só variável de ambiente.
@@ -87,6 +88,12 @@ O app já tem scaffold funcional em React Native + Expo, com chat, status e
 config, mergeado em `dev` e passando em `tsc --noEmit`. Ele fica parado onde
 está.
 
+O plano detalhado de integração com o servidor — token seguro, sessão,
+offline, `AgentAction` — já está escrito e **aprovado** (PR #17):
+[plano-integracao-mobile.md](plano-integracao-mobile.md). Quando o
+congelamento for levantado, a ordem de implementação proposta lá é o ponto
+de partida.
+
 O que falta antes de considerá-lo pronto:
 
 - **Paridade de resiliência com o desktop.** O ponto de partida não é zero, e num
@@ -140,9 +147,9 @@ para comandos com imagem. É a mesma discussão de assinatura registrada no pass
 - **Endpoint direto de pendências**, sem passar pelo LLM. Hoje o painel de
   agentes do desktop gasta uma chamada de modelo para saber o status, e é por
   isso que o refresh é manual. Com um endpoint próprio, dá para automatizar.
-- **Provedor de LLM determinístico** (interpretação por palavras-chave),
-  registrado em `PROVIDERS`. Destravaria o fluxo ponta a ponta sem nenhuma chave
-  de API, e serviria de base para testes de integração.
+- ~~**Provedor de LLM determinístico** (interpretação por palavras-chave),
+  registrado em `PROVIDERS`~~ → resolvido: `DeterministicoProvider` mergeado em
+  `dev` (PR #19), em `core/llm/deterministico.py`, coberto por testes.
 - **Geração dos contratos a partir de schema.** `shared/contracts/` está vazia; o
   plano era derivar `ts/` e `python/` de JSON Schema. Sem isso, os dois lados
   saem de sincronia — já aconteceu uma vez (`sessionId` × `session_id`).

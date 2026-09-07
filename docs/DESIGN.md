@@ -15,7 +15,7 @@ alvo, não o estado atual**: parte já roda, parte é plano.
 1. Cliente (desktop/mobile) manda comando de voz transcrito        ✅
         │
         ▼
-2. [server] Se session_id == null: cria sessão e devolve o id      🟡
+2. [server] Se session_id == null: cria sessão e devolve o id      ✅
         │
         ▼
 3. POST /comando { session_id?, texto }                            ✅
@@ -43,9 +43,9 @@ alvo, não o estado atual**: parte já roda, parte é plano.
 ```
 
 Resumindo: **existe hoje o miolo** (autenticação, interpretação pelo LLM,
-execução da ação) **e a memória em volta dele** (passos 3 e 8, com o 4 na versão
-concatenada). Falta o **lado cliente da sessão** (passo 2: guardar o id entre
-execuções) e **a entrega incremental** (passos 6 e 7).
+execução da ação), **a memória em volta dele** (passos 3 e 8, com o 4 na versão
+concatenada) **e o lado cliente da sessão** (passo 2: o desktop guarda o id via
+`tauri-plugin-store` e o reenvia). Falta **a entrega incremental** (passos 6 e 7).
 
 ---
 
@@ -55,7 +55,7 @@ O desktop (Tauri) ou o mobile (RN) já transcreveu o áudio localmente e envia
 apenas texto. O STT fica no cliente por decisão de latência — o servidor nunca
 recebe áudio.
 
-## 2. Criação da sessão — ✅ Existe (no servidor)
+## 2. Criação da sessão — ✅ Existe
 
 `CommandRequest.session_id` é `Optional[str]`. Nulo significa conversa nova.
 
@@ -69,6 +69,11 @@ Na primeira mensagem o cliente manda `session_id` nulo; o servidor cria a sessã
 e devolve o id em `CommandResponse.session_id`. O cliente guarda e reenvia nas
 próximas. Um id vindo do cliente continua sendo aceito e materializado — quem já
 tem conversa não a perde.
+
+O lado cliente também existe: o desktop persiste o id via `tauri-plugin-store`
+e o reenvia em toda chamada, então a conversa sobrevive a reaberturas do app.
+No mobile, o comportamento equivalente está planejado em
+[plano-integracao-mobile.md](plano-integracao-mobile.md).
 
 Falta só o lado do cliente: guardar o id entre execuções.
 
@@ -218,7 +223,7 @@ se uma resposta ruim veio do modelo local ou do fallback de nuvem.
 
 1. ~~**Persistência** (`sessions` + `messages`) — passos 3 e 8~~ → feito, ver [DATABASE.md](DATABASE.md)
 2. ~~**Histórico no contexto** — passo 4~~ → feito na versão concatenada, sem mexer na interface `LLMProvider`
-3. **Sessão no cliente** — passo 2: o servidor já devolve o id; falta o cliente guardá-lo entre execuções
+3. ~~**Sessão no cliente** — passo 2~~ → feito no desktop via `tauri-plugin-store`; no mobile, planejado em [plano-integracao-mobile.md](plano-integracao-mobile.md)
 4. **Assinatura estruturada do `LLMProvider`** — só se a concatenação do passo 4 não segurar; critérios no passo 4
 5. **Streaming** — passos 6 e 7, depende de resolver a tensão com saída estruturada
 6. **Contrato de `abrir_app`** — independente dos demais → [AGENTS.md](AGENTS.md)
