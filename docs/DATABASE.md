@@ -74,6 +74,51 @@ A ordenação é por `id`, não por `created_at`: duas mensagens gravadas no mes
 instante não teriam desempate por timestamp, e a ordem user → assistant dentro de
 um comando precisa ser estável.
 
+### `messages_uso`
+
+Consumo de tokens da chamada de LLM que gerou uma fala do Shogun. Gravada junto
+com a mensagem do assistente (passo 8) quando o provedor reporta medição;
+alimenta o `GET /consumo`.
+
+| Campo | Tipo | Papel |
+| --- | --- | --- |
+| `id` | INTEGER (PK, autoincrement) | — |
+| `message_id` | INTEGER (FK → `messages.id`, UNIQUE) | a fala do assistente medida |
+| `provider` | TEXT | quem atendeu de fato (`claude`, `deepseek`, `openai_mini`, `ollama`) — com fallback, é o reserva |
+| `input_tokens` | INTEGER | tokens de entrada reportados pela API do provedor |
+| `output_tokens` | INTEGER | tokens de saída reportados pela API do provedor |
+| `created_at` | TIMESTAMP | quando entrou (índice: é o corte de período do `/consumo`) |
+
+Tabela separada, e não colunas em `messages`: só mensagem do assistente atendida
+por provedor com medição tem uso — em `messages`, os campos ficariam nulos na
+maioria das linhas (falas do usuário, provedor `deterministico`, respostas de
+erro). O `UNIQUE(message_id)` codifica a regra "uma chamada de LLM por fala".
+
+Cada API reporta a medição num campo próprio: `usage.input_tokens` /
+`usage.output_tokens` na Anthropic; `usage.prompt_tokens` /
+`usage.completion_tokens` no DeepSeek e na OpenAI; `prompt_eval_count` /
+`eval_count` no Ollama (que omite o primeiro quando o prompt veio inteiro do
+cache — gravado como 0). Medição ausente não derruba o comando: a mensagem só
+fica sem linha aqui.
+
+## Rastreamento de consumo — onde vive a tabela de preços
+
+O preço por 1M de tokens (input e output) de cada provedor é a constante
+`PRECOS` em `server/app/core/llm/precos.py`. **Hardcoded de propósito**: preço
+muda por decisão comercial do provedor, e uma constante versionada deixa a
+mudança visível no diff e no `git blame` — não há tabela de preços no banco.
+
+Para atualizar: conferir a página de preços do provedor, editar o valor na
+constante, atualizar a data e a fonte no comentário do módulo e rodar a suíte
+(os testes de cálculo usam a mesma tabela). Trocar o **modelo** de um provedor
+(ex.: `shogun_model`) também implica revisar a linha dele.
+
+A tabela não é histórica: o custo é sempre calculado com o preço vigente,
+inclusive para mensagens antigas. Precisão retroativa exigiria versionar preço
+por período — complexidade que não se justifica para um usuário. Se um dia
+justificar, o caminho é gravar o custo calculado na própria `messages_uso` no
+momento da gravação.
+
 ## Divergências da implementação
 
 O que o código faz diferente do desenho original acima, e o motivo.
@@ -150,13 +195,13 @@ motivo.
 
 Não entram agora, mas o gatilho de cada um já é conhecido:
 
-- **`provider`** em `messages` (qual LLM respondeu) — sem isso não dá para saber
-  depois se uma resposta ruim veio do modelo local ou do fallback de nuvem.
-  Entra junto com o passo 8.
+- ~~**`provider`** em `messages`~~ — **resolvido**: vive em `messages_uso`
+  (ver acima), junto com a contagem de tokens da chamada.
 - **`acao` / `parametros`** — hoje reconstruíveis do texto; viram necessários se
   o histórico precisar alimentar o modelo com as ações passadas.
-- **`tokens`** — só faz sentido se a janela do passo 4 for por orçamento de
-  tokens em vez de contagem de mensagens.
+- **`tokens`** — a contagem **real** por resposta já existe em `messages_uso`;
+  este item era sobre tokens do texto de cada mensagem para a janela do passo 4,
+  que segue por contagem de mensagens.
 - **`user_id`** em `sessions` — ver os critérios de migração abaixo; múltiplos
   usuários e Postgres tendem a chegar juntos.
 
