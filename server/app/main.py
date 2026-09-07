@@ -1,14 +1,15 @@
 """Entrypoint do servidor central do Shogun."""
 
+import asyncio
 import logging
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, suppress
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.api import comando_router, consumo_router
 from app.core.config import settings
-from app.core.llm import get_llm_provider
+from app.core.llm import aquecer_provider, get_llm_provider
 from app.core.rede import descobrir_bind
 
 logging.basicConfig(level=logging.INFO)
@@ -39,7 +40,17 @@ async def lifespan(_: FastAPI):
             "apenas em %s.",
             bind.host,
         )
+
+    # Aquecimento do modelo local em segundo plano: carrega o modelo frio
+    # (>30s em CPU) fora do timeout de comando, eliminando o 503 do primeiro
+    # comando do dia. Em segundo plano porque /health e /comando nao podem
+    # esperar o carregamento; provedores sem nada a aquecer viram no-op.
+    aquecimento = asyncio.create_task(aquecer_provider(provider))
     yield
+    if not aquecimento.done():
+        aquecimento.cancel()
+        with suppress(asyncio.CancelledError):
+            await aquecimento
 
 
 app = FastAPI(title="Shogun Server", version="0.1.0", lifespan=lifespan)
