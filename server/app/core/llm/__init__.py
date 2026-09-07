@@ -10,6 +10,7 @@ from app.core.llm.base import (
     ConfiguracaoInvalidaError,
     LLMIndisponivelError,
     LLMProvider,
+    UsoTokens,
     parsear_comando,
 )
 from app.core.llm.claude import ClaudeProvider
@@ -48,6 +49,7 @@ __all__ = [
     "OpenAICompatProvider",
     "OpenAIMiniProvider",
     "ProviderDesconhecidoError",
+    "UsoTokens",
     "criar_provider",
     "get_llm_provider",
     "montar_provider",

@@ -8,8 +8,25 @@ from app.core.llm.base import (
     SYSTEM_PROMPT,
     ComandoInterpretado,
     LLMIndisponivelError,
+    UsoTokens,
     parsear_comando,
 )
+
+
+def _uso_da_resposta(nome: str, resposta) -> UsoTokens | None:
+    """Extrai o ``usage`` da Messages API (``input_tokens``/``output_tokens``).
+
+    Defensivo de propósito: telemetria ausente não pode derrubar um comando que
+    o modelo respondeu — nesse caso a mensagem só fica sem medição.
+    """
+    uso = getattr(resposta, "usage", None)
+    if uso is None:
+        return None
+    return UsoTokens(
+        provider=nome,
+        input_tokens=int(getattr(uso, "input_tokens", 0) or 0),
+        output_tokens=int(getattr(uso, "output_tokens", 0) or 0),
+    )
 
 
 class ClaudeProvider:
@@ -66,4 +83,6 @@ class ClaudeProvider:
         if texto_json is None:
             raise LLMIndisponivelError("Resposta da Claude sem conteúdo de texto.")
 
-        return parsear_comando(texto_json)
+        comando = parsear_comando(texto_json)
+        comando.uso = _uso_da_resposta(self.nome, resposta)
+        return comando

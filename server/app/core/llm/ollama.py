@@ -24,6 +24,7 @@ from app.core.llm.base import (
     ComandoInterpretado,
     ConfiguracaoInvalidaError,
     LLMIndisponivelError,
+    UsoTokens,
     parsear_comando,
 )
 
@@ -139,4 +140,14 @@ class OllamaProvider:
         if not conteudo:
             raise LLMIndisponivelError("ollama: resposta sem conteudo.")
 
-        return parsear_comando(conteudo)
+        comando = parsear_comando(conteudo)
+        # Equivalente ao `usage` das APIs de nuvem: `prompt_eval_count` e
+        # `eval_count`. O Ollama OMITE `prompt_eval_count` quando o prompt veio
+        # inteiro do cache — dai o default 0, que continua sendo a contagem
+        # certa de tokens processados de fato.
+        comando.uso = UsoTokens(
+            provider=self.nome,
+            input_tokens=int(dados.get("prompt_eval_count") or 0),
+            output_tokens=int(dados.get("eval_count") or 0),
+        )
+        return comando

@@ -11,6 +11,7 @@ from app.core.llm import (
     ComandoInterpretado,
     LLMIndisponivelError,
     LLMProvider,
+    UsoTokens,
     get_llm_provider,
 )
 from app.core.llm.historico import montar_prompt
@@ -45,10 +46,21 @@ def _abrir_conversa(
 
 
 def _fechar_conversa(
-    repo: RepositorioConversas, session_id: str, resposta: str
+    repo: RepositorioConversas,
+    session_id: str,
+    resposta: str,
+    uso: UsoTokens | None,
 ) -> None:
-    """Grava a fala do Shogun e marca atividade na sessao (passo 8)."""
-    repo.registrar_assistente(session_id, resposta)
+    """Grava a fala do Shogun e marca atividade na sessao (passo 8).
+
+    Quando o provedor reportou consumo, ele e gravado junto, amarrado a
+    mensagem do assistente — e o que alimenta o GET /consumo.
+    """
+    mensagem = repo.registrar_assistente(session_id, resposta)
+    if uso is not None:
+        repo.registrar_uso(
+            mensagem.id, uso.provider, uso.input_tokens, uso.output_tokens
+        )
     sessao = repo.obter_sessao(session_id)
     if sessao is not None:
         repo.marcar_atividade(sessao)
@@ -179,7 +191,9 @@ async def processar_comando(
         acoes.append(acao)
     # "conversar" usa a resposta livre do modelo, sem ação de agente.
 
-    await run_in_threadpool(_fechar_conversa, repo, session_id, resposta)
+    await run_in_threadpool(
+        _fechar_conversa, repo, session_id, resposta, intencao.uso
+    )
 
     # `session_id` vem da sessão, não do request: quando o cliente manda nulo,
     # é aqui que ele descobre qual conversa o servidor abriu.

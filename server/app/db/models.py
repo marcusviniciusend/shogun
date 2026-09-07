@@ -80,5 +80,37 @@ class Message(Base):
     )
 
 
+class MessageUso(Base):
+    """Consumo de tokens da chamada de LLM que gerou uma fala do Shogun.
+
+    Tabela separada, e não colunas em `messages`, porque o uso só existe para
+    mensagens do assistente atendidas por um provedor que reporta medição — em
+    `messages` os campos seriam nulos na metade das linhas. Aqui também mora o
+    `provider`, cobrindo o campo "deliberadamente fora" do schema original
+    (ver `docs/DATABASE.md`).
+    """
+
+    __tablename__ = "messages_uso"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    # unique: uma chamada de LLM por fala do assistente — duas medições para a
+    # mesma mensagem seria bug de gravação, não dado.
+    message_id: Mapped[int] = mapped_column(
+        Integer,
+        ForeignKey("messages.id", ondelete="CASCADE"),
+        nullable=False,
+        unique=True,
+    )
+    provider: Mapped[str] = mapped_column(String(32), nullable=False)
+    input_tokens: Mapped[int] = mapped_column(Integer, nullable=False)
+    output_tokens: Mapped[int] = mapped_column(Integer, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=agora_utc)
+
+    __table_args__ = (
+        # A consulta do GET /consumo: soma de tokens num período.
+        Index("ix_messages_uso_created_at", "created_at"),
+    )
+
+
 ROLE_USUARIO = "user"
 ROLE_ASSISTENTE = "assistant"

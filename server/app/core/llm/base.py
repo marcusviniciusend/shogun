@@ -77,12 +77,31 @@ DICA_ESQUEMA = (
 )
 
 
+class UsoTokens(BaseModel):
+    """Consumo real de tokens de UMA chamada ao provedor.
+
+    Preenchido pelo próprio provedor a partir do que a API dele reporta
+    (``usage`` na Anthropic/OpenAI/DeepSeek, ``prompt_eval_count`` /
+    ``eval_count`` no Ollama). ``provider`` é o nome de quem de fato atendeu —
+    com fallback, o reserva; nunca o nome composto do wrapper.
+    """
+
+    provider: str
+    input_tokens: int = 0
+    output_tokens: int = 0
+
+
 class ComandoInterpretado(BaseModel):
     """Interpretação estruturada de um comando, independente do provedor."""
 
     acao: Acao = "conversar"
     parametros: dict[str, Any] = Field(default_factory=dict)
     resposta_falada: str
+    # Telemetria, não interpretação: nunca vem do JSON do modelo (ver
+    # `parsear_comando`) — quem o preenche é o código do provedor, depois do
+    # parse. `None` = provedor sem medição (ex.: deterministico, que não chama
+    # LLM nenhum).
+    uso: UsoTokens | None = None
 
 
 class LLMIndisponivelError(RuntimeError):
@@ -139,6 +158,12 @@ def parsear_comando(texto_json: str) -> ComandoInterpretado:
         dados = json.loads(texto_json)
     except json.JSONDecodeError as exc:
         raise LLMIndisponivelError(f"Resposta não é JSON válido: {exc}") from exc
+
+    if isinstance(dados, dict):
+        # `uso` é preenchido pelo código do provedor, nunca pelo modelo: um
+        # LLM que alucine (ou injete) o campo não pode falsear a telemetria
+        # nem derrubar a validação.
+        dados.pop("uso", None)
 
     if isinstance(dados, dict) and isinstance(dados.get("parametros"), dict):
         dados["parametros"] = {

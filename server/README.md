@@ -174,6 +174,44 @@ curl -X POST http://localhost:8000/comando \
 
 Contratos (`CommandRequest` / `CommandResponse`) vêm de `shared/python`.
 
+### `GET /consumo`
+
+Tokens consumidos, custo real acumulado e comparativo de preços entre os
+provedores. Mesma autenticação do `/comando`. Parâmetros opcionais `inicio`
+(inclusivo) e `fim` (exclusivo), em ISO 8601 — sem eles, o período é tudo
+desde o início.
+
+```bash
+curl -H "Authorization: Bearer $SHOGUN_AUTH_TOKEN" \
+  "http://localhost:8000/consumo?inicio=2026-09-01T00:00:00"
+```
+
+```json
+{
+  "inicio": "2026-09-01T00:00:00",
+  "fim": null,
+  "total_input_tokens": 3000000,
+  "total_output_tokens": 600000,
+  "custo_real_usd": 4.5,
+  "por_provider": [
+    { "provider": "claude", "mensagens": 1, "input_tokens": 1000000,
+      "output_tokens": 100000, "custo_usd": 4.5 }
+  ],
+  "comparativo": [
+    { "provider": "claude", "custo_usd": 18.0 },
+    { "provider": "deepseek", "custo_usd": 1.092 },
+    { "provider": "ollama", "custo_usd": 0.0 },
+    { "provider": "openai_mini", "custo_usd": 0.81 }
+  ]
+}
+```
+
+O custo real usa o provedor que de fato atendeu cada mensagem (tabela
+`messages_uso`); o comparativo aplica o volume total do período ao preço de
+cada provedor. A tabela de preços é a constante `PRECOS` em
+`app/core/llm/precos.py` — como atualizá-la está documentado no próprio módulo
+e em `docs/DATABASE.md`.
+
 ### Ações suportadas
 
 | ação | comportamento |
