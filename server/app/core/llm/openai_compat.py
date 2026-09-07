@@ -16,8 +16,25 @@ from app.core.llm.base import (
     SYSTEM_PROMPT,
     ComandoInterpretado,
     LLMIndisponivelError,
+    UsoTokens,
     parsear_comando,
 )
+
+
+def _uso_da_resposta(nome: str, resposta) -> UsoTokens | None:
+    """Extrai o ``usage`` do chat completions (``prompt_tokens``/``completion_tokens``).
+
+    A API declara ``usage`` como opcional; sem ele a mensagem fica sem medição —
+    telemetria ausente nunca derruba um comando respondido.
+    """
+    uso = getattr(resposta, "usage", None)
+    if uso is None:
+        return None
+    return UsoTokens(
+        provider=nome,
+        input_tokens=int(getattr(uso, "prompt_tokens", 0) or 0),
+        output_tokens=int(getattr(uso, "completion_tokens", 0) or 0),
+    )
 
 
 class OpenAICompatProvider:
@@ -101,7 +118,9 @@ class OpenAICompatProvider:
         if not conteudo:
             raise LLMIndisponivelError(f"{self.nome}: resposta sem conteúdo.")
 
-        return parsear_comando(conteudo)
+        comando = parsear_comando(conteudo)
+        comando.uso = _uso_da_resposta(self.nome, resposta)
+        return comando
 
 
 class DeepSeekProvider(OpenAICompatProvider):
