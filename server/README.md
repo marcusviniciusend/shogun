@@ -5,7 +5,7 @@ Servidor central do Shogun — Python 3.11+ com FastAPI.
 Responsabilidades:
 - expor a API (HTTP + WebSocket) consumida pelos clientes desktop e mobile;
 - receber comandos já transcritos e interpretá-los via `LLMProvider` (Claude,
-  DeepSeek, OpenAI ou modelo local no Ollama);
+  DeepSeek, OpenAI, modelo local no Ollama ou regras determinísticas sem LLM);
 - orquestrar agentes especializados (`app/agents/`);
 - manter contexto e memória da conversa.
 
@@ -212,6 +212,30 @@ não muda quem o Shogun é.
 | `deepseek` | `DeepSeekProvider` | JSON mode + schema descrito no prompt |
 | `openai_mini` | `OpenAIMiniProvider` | `response_format` json_schema `strict` |
 | `ollama` | `OllamaProvider` | `format` com JSON Schema (gramática, local) |
+| `deterministico` | `DeterministicoProvider` | regras fixas, sem LLM (veja abaixo) |
+
+### Provedor determinístico
+
+`deterministico` não chama LLM nenhum: a intenção é decidida por palavras-chave
+sobre o texto normalizado (minúsculas, sem acentos). Cobre `consultar_pendencias`
+(com `limite` numérico opcional), `abrir_app` (verbo de abertura + nome do app) e
+`conversar` como padrão. Não usa credencial, não faz rede e nunca levanta
+`LLMIndisponivelError` — o mesmo comando cai sempre na mesma ação.
+
+Serve para duas coisas:
+
+- **destravar o fluxo ponta a ponta** (cliente → `/comando` → pendências →
+  resposta falada) sem depender de LLM externo nem de chave de API;
+- **fallback final**: como nunca falha, colocá-lo em
+  `SHOGUN_LLM_FALLBACK_PROVIDER` garante que o Shogun sempre responde algo,
+  mesmo com toda a nuvem fora.
+
+```bash
+SHOGUN_LLM_PROVIDER=deterministico      # sem chave de API nenhuma
+# ou, como rede de segurança:
+SHOGUN_LLM_PROVIDER=claude
+SHOGUN_LLM_FALLBACK_PROVIDER=deterministico
+```
 
 ### Adicionando um provedor
 

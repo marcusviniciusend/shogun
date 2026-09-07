@@ -18,6 +18,7 @@ from app.core.llm import (
     ComandoInterpretado,
     ConfiguracaoInvalidaError,
     DeepSeekProvider,
+    DeterministicoProvider,
     FallbackLLMProvider,
     LLMIndisponivelError,
     LLMProvider,
@@ -563,8 +564,14 @@ async def test_ollama_ok_nao_gasta_api_paga(config):
 # --- registro e factory --------------------------------------------------
 
 
-def test_registro_expoe_os_quatro_provedores():
-    assert set(PROVIDERS) == {"claude", "deepseek", "openai_mini", "ollama"}
+def test_registro_expoe_os_cinco_provedores():
+    assert set(PROVIDERS) == {
+        "claude",
+        "deepseek",
+        "openai_mini",
+        "ollama",
+        "deterministico",
+    }
     assert PROVIDERS["claude"] is ClaudeProvider
 
 
@@ -678,3 +685,83 @@ async def test_fallback_cobre_timeout_do_provedor_real(config):
     comando = await FallbackLLMProvider(principal, reserva).interpretar_comando("oi")
 
     assert comando.acao == "abrir_app"
+
+
+# --- provedor deterministico ---------------------------------------------
+
+
+@pytest.fixture
+def deterministico(config) -> DeterministicoProvider:
+    return DeterministicoProvider(config)
+
+
+def test_deterministico_nao_exige_credencial(config):
+    """Constroi so com Settings vazio: nenhuma variavel de ambiente e necessaria."""
+    provider = DeterministicoProvider(Settings(_env_file=None))
+    assert provider.configurado
+    assert provider.nome == "deterministico"
+
+
+async def test_pergunta_por_pendencias_vira_consultar_pendencias(deterministico):
+    comando = await deterministico.interpretar_comando("quais sao minhas pendencias?")
+    assert comando.acao == "consultar_pendencias"
+    assert comando.resposta_falada
+
+
+async def test_palavra_chave_casa_mesmo_com_acento_e_maiuscula(deterministico):
+    comando = await deterministico.interpretar_comando("Shogun, o que está PENDENTE?")
+    assert comando.acao == "consultar_pendencias"
+
+
+async def test_numero_no_pedido_de_pendencias_vira_limite(deterministico):
+    comando = await deterministico.interpretar_comando("liste 3 tarefas")
+    assert comando.acao == "consultar_pendencias"
+    assert comando.parametros == {"limite": 3}
+
+
+async def test_pendencias_sem_numero_nao_inventa_limite(deterministico):
+    comando = await deterministico.interpretar_comando("tem tarefa pra hoje?")
+    assert comando.acao == "consultar_pendencias"
+    assert "limite" not in comando.parametros
+
+
+async def test_abre_aplicativo_extraindo_o_nome(deterministico):
+    comando = await deterministico.interpretar_comando("abre o spotify")
+    assert comando.acao == "abrir_app"
+    assert comando.parametros == {"app": "spotify"}
+
+
+async def test_verbo_de_abrir_sem_nome_de_app_vira_conversa(deterministico):
+    comando = await deterministico.interpretar_comando("abrir")
+    assert comando.acao == "conversar"
+
+
+async def test_texto_livre_vira_conversar(deterministico):
+    comando = await deterministico.interpretar_comando("bom dia, tudo bem?")
+    assert comando.acao == "conversar"
+    assert comando.parametros == {}
+    assert comando.resposta_falada
+
+
+async def test_mesmo_comando_da_sempre_a_mesma_interpretacao(deterministico):
+    primeira = await deterministico.interpretar_comando("liste 2 pendencias")
+    segunda = await deterministico.interpretar_comando("liste 2 pendencias")
+    assert primeira == segunda
+
+
+async def test_pendencias_tem_prioridade_sobre_abrir_app(deterministico):
+    """'abre as pendencias' e consulta, nao abertura de app chamado 'pendencias'."""
+    comando = await deterministico.interpretar_comando("abre as pendencias")
+    assert comando.acao == "consultar_pendencias"
+
+
+async def test_deterministico_como_reserva_garante_resposta(config):
+    """Com toda a nuvem fora, o fallback deterministico ainda responde."""
+    principal = ProviderDeTeste("claude", erro="nuvem fora")
+    reserva = DeterministicoProvider(config)
+
+    comando = await FallbackLLMProvider(principal, reserva).interpretar_comando(
+        "o que falta fazer?"
+    )
+
+    assert comando.acao == "consultar_pendencias"

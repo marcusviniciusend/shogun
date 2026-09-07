@@ -11,6 +11,7 @@ from functools import lru_cache
 from app.core.config import Settings, settings
 from app.core.llm.base import LLMProvider
 from app.core.llm.claude import ClaudeProvider
+from app.core.llm.deterministico import DeterministicoProvider
 from app.core.llm.fallback import FallbackLLMProvider
 from app.core.llm.ollama import OllamaProvider
 from app.core.llm.openai_compat import DeepSeekProvider, OpenAIMiniProvider
@@ -24,6 +25,7 @@ PROVIDERS: dict[str, type[LLMProvider]] = {
     "deepseek": DeepSeekProvider,
     "openai_mini": OpenAIMiniProvider,
     "ollama": OllamaProvider,
+    "deterministico": DeterministicoProvider,
 }
 
 
