@@ -212,6 +212,39 @@ cada provedor. A tabela de preços é a constante `PRECOS` em
 `app/core/llm/precos.py` — como atualizá-la está documentado no próprio módulo
 e em `docs/DATABASE.md`.
 
+### `GET /pendencias`
+
+As pendências abertas, estruturadas e **sem passar pelo LLM** — feito para o
+painel de agentes dos clientes, que antes gastava uma chamada de modelo inteira
+(`POST /comando` com `consultar_pendencias`) só para ler status. Mesma
+autenticação do `/comando`; consulta o `PendenciasProvider` injetado
+(threadpool, como o `/comando`) e devolve os modelos de domínio serializados
+direto, na mesma ordem de urgência da fala (prioridade decrescente, depois
+timestamp). Falha do provedor devolve `503`.
+
+```bash
+curl -H "Authorization: Bearer $SHOGUN_AUTH_TOKEN" \
+  http://localhost:8000/pendencias
+```
+
+```json
+{
+  "total": 2,
+  "pendencias": [
+    { "agente_id": "a1", "agente_nome": "Contratos", "status": "pendente",
+      "descricao": "Assinar contrato", "timestamp": "2026-09-02T12:00:00Z",
+      "prioridade": 5 },
+    { "agente_id": "a1", "agente_nome": "Contratos", "status": "pendente",
+      "descricao": "Ligar pro contador", "timestamp": "2026-09-02T12:00:00Z",
+      "prioridade": 0 }
+  ]
+}
+```
+
+O contrato da resposta vive na própria rota (`app/api/pendencias.py`), como o
+`/consumo`; quando um cliente tipado consumir, o modelo é promovido a `shared/`
+nas duas pontas.
+
 ### Ações suportadas
 
 | ação | comportamento |
