@@ -99,6 +99,36 @@ class OllamaProvider:
             },
         }
 
+    async def aquecer(self) -> None:
+        """Carrega o modelo na memoria sem gerar nada.
+
+        Enviar ``messages`` vazio ao ``/api/chat`` e a forma documentada de
+        pre-carregar um modelo no Ollama: ele sobe os pesos para a memoria e
+        responde sem gerar tokens. E o que elimina o "primeiro comando frio":
+        chamado no startup do servidor, o carregamento (>30s em CPU) acontece
+        antes de qualquer comando, e nao dentro do timeout de um comando real.
+
+        Usa ``SHOGUN_LLM_AQUECIMENTO_TIMEOUT``, nao o timeout de comando:
+        ninguem esta esperando resposta, entao o teto pode ser generoso.
+        """
+        payload = {"model": self._modelo, "messages": [], "stream": False}
+        try:
+            async with httpx.AsyncClient(
+                timeout=self._config.shogun_llm_aquecimento_timeout,
+                transport=self._transport,
+            ) as client:
+                resposta = await client.post(self._url, json=payload)
+                resposta.raise_for_status()
+        except httpx.HTTPStatusError as exc:
+            raise LLMIndisponivelError(
+                f"Aquecimento do modelo '{self._modelo}' falhou com HTTP "
+                f"{exc.response.status_code}: {exc.response.text[:200]}"
+            ) from exc
+        except httpx.HTTPError as exc:  # conexao, timeout, rede em geral
+            raise LLMIndisponivelError(
+                f"Aquecimento do modelo '{self._modelo}' falhou: {exc}"
+            ) from exc
+
     async def interpretar_comando(self, texto: str) -> ComandoInterpretado:
         try:
             async with httpx.AsyncClient(

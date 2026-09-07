@@ -11,7 +11,12 @@ import {
   StatusServidor,
   type EstadoServidor,
 } from "./components/StatusServidor";
-import { enviarComando, ErroComando, verificarSaude } from "./lib/api";
+import {
+  ehErroDeConexao,
+  enviarComando,
+  ErroComando,
+  verificarSaude,
+} from "./lib/api";
 import {
   CONFIG_DEFAULT,
   aplicarTema,
@@ -37,10 +42,21 @@ function mensagemDeErro(e: unknown): string {
   return e instanceof ErroComando ? e.message : "Erro inesperado ao falar com o servidor.";
 }
 
-/** Texto exibido quando o /health barrou o envio. O detalhe fica no banner. */
+/**
+ * Texto UNICO de problema de conexao, usado pelo chat e pelo painel de
+ * Agentes. Os dois falham juntos quando o servidor cai; textos diferentes em
+ * dois cantos da tela pareciam dois problemas. O detalhe (causa, URL) mora em
+ * um lugar so: o banner do topo.
+ */
 function mensagemServidorFora(): string {
-  return "Não enviei: o servidor não está respondendo. Veja o aviso no topo.";
+  return "Sem conexão com o servidor — veja o aviso no topo.";
 }
+
+/**
+ * Espera antes do UNICO reenvio automatico de um 503: da tempo de o modelo
+ * local terminar de carregar sem transformar o retry em martelada.
+ */
+const ESPERA_REENVIO_MS = 2000;
 
 interface Props {
   /** Tema ja lido do store antes do primeiro paint (ver main.tsx). */
@@ -115,19 +131,56 @@ export default function App({ temaInicial }: Props) {
     await salvarSessionId(novoId);
   }
 
-  async function enviarMensagem(texto: string) {
-    setMensagens((m) => [...m, { autor: "usuario", texto }]);
+  /**
+   * `enviarComando` com UM reenvio automatico quando o erro e 503 (LLM
+   * indisponivel) — o caso do primeiro comando do dia com o modelo local
+   * frio. So esse tipo: reenviar erro de auth ou de rede nao muda nada e
+   * ainda esconderia o problema real.
+   */
+  async function chamarComReenvio(texto: string) {
+    try {
+      return await enviarComando(config, texto, sessionId);
+    } catch (e) {
+      if (!(e instanceof ErroComando) || e.tipo !== "llm_indisponivel") {
+        throw e;
+      }
+      await new Promise((r) => setTimeout(r, ESPERA_REENVIO_MS));
+      return await enviarComando(config, texto, sessionId);
+    }
+  }
+
+  /**
+   * Roteia uma falha para o lugar certo e devolve o texto a exibir no local.
+   *
+   * Problema de CONEXAO vai para o indicador unico do topo (o mesmo que o
+   * /health alimenta) e o local recebe so a frase curta que aponta para la —
+   * chat e painel de Agentes falham juntos quando o servidor cai, e este
+   * funil e o que impede a mesma queda de parecer dois problemas. Erros
+   * especificos (auth, 503, formato) continuam onde ocorreram.
+   */
+  function registrarFalha(e: unknown): string {
+    if (ehErroDeConexao(e)) {
+      setEstadoServidor("inalcancavel");
+      setMotivoServidor(e.message);
+      return mensagemServidorFora();
+    }
+    return mensagemDeErro(e);
+  }
+
+  /** Envia `texto` ao servidor. A bolha do usuario ja esta no historico. */
+  async function processarComando(texto: string) {
     if (!(await checarSaude(config))) {
-      // Barra antes de gastar uma chamada de LLM num servidor que nao responde.
+      // Barra antes de gastar uma chamada de LLM num servidor que nao
+      // responde. A bolha guarda o comando: volta o servidor, um clique reenvia.
       setMensagens((m) => [
         ...m,
-        { autor: "shogun", texto: mensagemServidorFora(), erro: true },
+        { autor: "shogun", texto: mensagemServidorFora(), erro: true, reenvio: texto },
       ]);
       return;
     }
     setChatCarregando(true);
     try {
-      const resposta = await enviarComando(config, texto, sessionId);
+      const resposta = await chamarComReenvio(texto);
       await atualizarSessao(resposta.session_id);
       setMensagens((m) => [...m, { autor: "shogun", texto: resposta.text }]);
       // Se o comando digitado tambem consultou pendencias, aproveita no painel.
@@ -136,10 +189,28 @@ export default function App({ temaInicial }: Props) {
         setErroAgentes(null);
       }
     } catch (e) {
-      setMensagens((m) => [...m, { autor: "shogun", texto: mensagemDeErro(e), erro: true }]);
+      setMensagens((m) => [
+        ...m,
+        { autor: "shogun", texto: registrarFalha(e), erro: true, reenvio: texto },
+      ]);
     } finally {
       setChatCarregando(false);
     }
+  }
+
+  async function enviarMensagem(texto: string) {
+    setMensagens((m) => [...m, { autor: "usuario", texto }]);
+    await processarComando(texto);
+  }
+
+  /**
+   * "Tentar de novo" de uma bolha de erro: remove a bolha clicada e reenvia o
+   * comando que ela guardou. A mensagem original do usuario segue no
+   * historico — nada e redigitado nem duplicado.
+   */
+  async function tentarDeNovo(indice: number, texto: string) {
+    setMensagens((m) => m.filter((_, i) => i !== indice));
+    await processarComando(texto);
   }
 
   async function atualizarAgentes() {
@@ -151,12 +222,12 @@ export default function App({ temaInicial }: Props) {
       return;
     }
     try {
-      const resposta = await enviarComando(config, COMANDO_PENDENCIAS, sessionId);
+      const resposta = await chamarComReenvio(COMANDO_PENDENCIAS);
       await atualizarSessao(resposta.session_id);
       setAcoesAgentes(resposta.actions);
       setResumoAgentes(resposta.text);
     } catch (e) {
-      setErroAgentes(mensagemDeErro(e));
+      setErroAgentes(registrarFalha(e));
     } finally {
       setAgentesCarregando(false);
     }
@@ -242,6 +313,7 @@ export default function App({ temaInicial }: Props) {
               carregando={chatCarregando}
               bloqueado={estadoServidor === "inalcancavel"}
               onEnviar={enviarMensagem}
+              onReenviar={(indice, texto) => void tentarDeNovo(indice, texto)}
             />
           )}
           {mostraAgentes && (

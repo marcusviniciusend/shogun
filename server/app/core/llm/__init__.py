@@ -1,5 +1,6 @@
 """Camada de provedores de LLM do Shogun."""
 
+from app.core.llm.aquecimento import aquecer_provider
 from app.core.llm.base import (
     ACOES,
     DICA_ESQUEMA,
@@ -50,6 +51,7 @@ __all__ = [
     "OpenAIMiniProvider",
     "ProviderDesconhecidoError",
     "UsoTokens",
+    "aquecer_provider",
     "criar_provider",
     "get_llm_provider",
     "montar_provider",

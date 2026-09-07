@@ -25,6 +25,7 @@ from app.core.llm import (
     OllamaProvider,
     OpenAIMiniProvider,
     ProviderDesconhecidoError,
+    aquecer_provider,
     criar_provider,
     montar_provider,
 )
@@ -765,3 +766,103 @@ async def test_deterministico_como_reserva_garante_resposta(config):
     )
 
     assert comando.acao == "consultar_pendencias"
+
+
+# --- aquecimento do modelo local -----------------------------------------
+
+
+def _ollama_aquecimento_ok():
+    """Handler que devolve a resposta de carga (sem geracao) do /api/chat."""
+    capturado = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        capturado["url"] = str(request.url)
+        capturado["body"] = json.loads(request.content)
+        capturado["timeout"] = request.extensions.get("timeout", {})
+        return httpx.Response(
+            200,
+            json={
+                "model": "hermes3:8b",
+                "message": {"role": "assistant", "content": ""},
+                "done": True,
+                "done_reason": "load",
+            },
+        )
+
+    return httpx.MockTransport(handler), capturado
+
+
+async def test_aquecer_envia_so_a_carga_do_modelo(config):
+    """messages vazio: carrega o modelo sem gerar nada — e nada alem disso."""
+    transporte, capturado = _ollama_aquecimento_ok()
+
+    await OllamaProvider(config, transport=transporte).aquecer()
+
+    assert capturado["url"] == "http://localhost:11434/api/chat"
+    assert capturado["body"] == {
+        "model": "hermes3:8b",
+        "messages": [],
+        "stream": False,
+    }
+
+
+async def test_aquecer_usa_timeout_proprio_e_generoso(config):
+    """O teto do aquecimento e o de carga do modelo, nao o de comando."""
+    transporte, capturado = _ollama_aquecimento_ok()
+    largo = config.model_copy(update={"shogun_llm_aquecimento_timeout": 123.0})
+
+    await OllamaProvider(largo, transport=transporte).aquecer()
+
+    assert capturado["timeout"]["read"] == 123.0
+
+
+async def test_aquecer_com_ollama_fora_vira_llm_indisponivel(config):
+    transporte = _ollama_erro(httpx.ConnectError("recusada"))
+    with pytest.raises(LLMIndisponivelError, match="Aquecimento"):
+        await OllamaProvider(config, transport=transporte).aquecer()
+
+
+async def test_aquecer_com_http_de_erro_cita_o_modelo(config):
+    transporte = _ollama_status(404, "model not found")
+    with pytest.raises(LLMIndisponivelError, match="hermes3:8b"):
+        await OllamaProvider(config, transport=transporte).aquecer()
+
+
+class ProviderAquecivel(ProviderDeTeste):
+    """ProviderDeTeste que tambem sabe se aquecer (com falha opcional)."""
+
+    def __init__(self, nome: str, erro_aquecimento: str | None = None):
+        super().__init__(nome)
+        self.erro_aquecimento = erro_aquecimento
+        self.aquecido = False
+
+    async def aquecer(self) -> None:
+        if self.erro_aquecimento:
+            raise LLMIndisponivelError(self.erro_aquecimento)
+        self.aquecido = True
+
+
+async def test_aquecimento_alcanca_principal_e_reserva_do_fallback():
+    principal = ProviderAquecivel("ollama")
+    reserva = ProviderAquecivel("outro-local")
+
+    await aquecer_provider(FallbackLLMProvider(principal, reserva))
+
+    assert principal.aquecido
+    assert reserva.aquecido
+
+
+async def test_aquecimento_ignora_provedor_sem_aquecer(config):
+    """Provedores de nuvem nao tem o que aquecer: no-op, sem erro."""
+    await aquecer_provider(DeterministicoProvider(config))
+
+
+async def test_falha_de_aquecimento_nao_propaga(caplog):
+    """Aquecimento e otimizacao: falha vira warning, nunca derruba o startup."""
+    principal = ProviderAquecivel("ollama", erro_aquecimento="modelo nao baixado")
+    reserva = ProviderAquecivel("outro-local")
+
+    await aquecer_provider(FallbackLLMProvider(principal, reserva))
+
+    assert "modelo nao baixado" in caplog.text
+    assert reserva.aquecido  # a falha de um componente nao pula os demais

@@ -10,16 +10,45 @@ import { fetch } from "@tauri-apps/plugin-http";
 import type { Config } from "./config";
 import type { CommandRequestWire, CommandResponseWire } from "./types";
 
+/**
+ * Categoria da falha — e o que permite a UI decidir a reacao sem fazer
+ * pattern-matching na mensagem:
+ *
+ * - `rede` / `timeout`: problema de CONEXAO. Vai para o indicador unico no
+ *   topo, nao para textos espalhados por painel.
+ * - `llm_indisponivel`: 503 — o servidor esta de pe, so o modelo nao. E o
+ *   unico caso com reenvio automatico (modelo frio costuma responder na
+ *   segunda tentativa).
+ * - `auth`, `http`, `formato`: erros especificos, mostrados onde ocorreram e
+ *   NUNCA reenviados sozinhos — reenviar um 401 seria martelar a porta errada.
+ */
+export type TipoErro =
+  | "rede"
+  | "timeout"
+  | "auth"
+  | "llm_indisponivel"
+  | "http"
+  | "formato";
+
 /** Erro ja traduzido para mensagem exibivel ao usuario. */
 export class ErroComando extends Error {
+  readonly tipo: TipoErro;
   /** Causa crua, para log e diagnostico. Nao e mostrada ao usuario. */
   readonly causa?: unknown;
 
-  constructor(mensagem: string, causa?: unknown) {
+  constructor(mensagem: string, tipo: TipoErro, causa?: unknown) {
     super(mensagem);
     this.name = "ErroComando";
+    this.tipo = tipo;
     this.causa = causa;
   }
+}
+
+/** Falha de conexao: o servidor nao foi alcancado ou nao respondeu. */
+export function ehErroDeConexao(e: unknown): e is ErroComando {
+  return (
+    e instanceof ErroComando && (e.tipo === "rede" || e.tipo === "timeout")
+  );
 }
 
 /**
@@ -81,7 +110,11 @@ export async function verificarSaude(config: Config): Promise<void> {
     });
   } catch (e) {
     console.error("[shogun] /health falhou:", e);
-    throw new ErroComando(traduzirFalhaDeRede(e, config.serverUrl), e);
+    throw new ErroComando(
+      traduzirFalhaDeRede(e, config.serverUrl),
+      cancelar.signal.aborted ? "timeout" : "rede",
+      e,
+    );
   } finally {
     clearTimeout(limite);
   }
@@ -93,7 +126,7 @@ export async function verificarSaude(config: Config): Promise<void> {
       `${config.serverUrl} respondeu HTTP ${resposta.status} em /health. ` +
       "Pode haver outro programa ocupando essa porta.";
     console.error("[shogun] /health:", msg);
-    throw new ErroComando(msg);
+    throw new ErroComando(msg, "http");
   }
 }
 
@@ -146,10 +179,11 @@ export async function enviarComando(
         `O servidor recebeu o comando mas nao respondeu em ` +
           `${TIMEOUT_COMANDO_MS / 1000} segundos. Ele pode estar travado ou ` +
           "sobrecarregado — tente de novo em instantes.",
+        "timeout",
         e,
       );
     }
-    throw new ErroComando(traduzirFalhaDeRede(e, config.serverUrl), e);
+    throw new ErroComando(traduzirFalhaDeRede(e, config.serverUrl), "rede", e);
   } finally {
     clearTimeout(limite);
   }
@@ -164,6 +198,7 @@ export async function enviarComando(
           "). Confira o token nas configuracoes."
         : "O servidor exige autenticacao e nenhum token esta configurado. " +
           "Preencha o SHOGUN_AUTH_TOKEN nas configuracoes.",
+      "auth",
     );
   }
   if (resposta.status === 503) {
@@ -171,11 +206,13 @@ export async function enviarComando(
       "O servidor esta de pe, mas o provedor de LLM esta indisponivel " +
         "no momento (503). Se o modelo local acabou de subir, ele pode estar " +
         "carregando — tente de novo em instantes.",
+      "llm_indisponivel",
     );
   }
   if (!resposta.ok) {
     throw new ErroComando(
       `O servidor devolveu um erro inesperado (HTTP ${resposta.status}).`,
+      "http",
     );
   }
 
@@ -185,6 +222,7 @@ export async function enviarComando(
     console.error("[shogun] resposta fora do formato:", e);
     throw new ErroComando(
       "O servidor devolveu uma resposta fora do formato esperado.",
+      "formato",
       e,
     );
   }

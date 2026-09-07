@@ -24,6 +24,8 @@ interface Props {
   /** Servidor fora do ar: nao adianta deixar mandar. */
   bloqueado?: boolean;
   onEnviar: (texto: string) => void;
+  /** Reenvia o comando guardado na bolha de erro de indice `indice`. */
+  onReenviar: (indice: number, texto: string) => void;
 }
 
 export function Chat({
@@ -31,6 +33,7 @@ export function Chat({
   carregando,
   bloqueado = false,
   onEnviar,
+  onReenviar,
 }: Props) {
   const [texto, setTexto] = useState("");
   const fimRef = useRef<HTMLDivElement>(null);
@@ -69,7 +72,19 @@ export function Chat({
             ) : (
               <Selo />
             )}
-            <p>{m.texto}</p>
+            <div>
+              <p>{m.texto}</p>
+              {m.erro && m.reenvio != null && (
+                <button
+                  type="button"
+                  className="botao-secundario chat-tentar"
+                  onClick={() => onReenviar(i, m.reenvio!)}
+                  disabled={carregando}
+                >
+                  Tentar de novo
+                </button>
+              )}
+            </div>
           </div>
         ))}
         {carregando && (
