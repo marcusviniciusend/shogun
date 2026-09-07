@@ -358,8 +358,9 @@ comportamento sob decodificação restrita (alguns modelos degradam quando a
 gramática corta os tokens que eles queriam emitir).
 
 Números de VRAM são para os pesos em **Q4_K_M** (o default do `ollama pull`), sem
-contar o contexto — reserve ~1 GB a mais. Rodar em CPU funciona, mas a primeira
-chamada costuma estourar o `SHOGUN_LLM_TIMEOUT`.
+contar o contexto — reserve ~1 GB a mais. Rodar em CPU funciona: o carregamento
+frio, que estouraria o `SHOGUN_LLM_TIMEOUT`, acontece no aquecimento do startup
+(ver "Notas de operação").
 
 | Modelo | Tamanho / VRAM | A favor | Contra |
 | --- | --- | --- | --- |
@@ -391,10 +392,17 @@ ele falha junto e o erro cita os dois motivos.
 
 ### Notas de operação
 
-- **Primeira chamada é lenta.** O modelo é carregado na memória sob demanda; em
-  CPU isso passa fácil dos 30 s do `SHOGUN_LLM_TIMEOUT` e dispara o fallback sem
-  necessidade. Ou suba o timeout, ou "aqueça" o modelo com um `ollama run
-  <modelo> ""` antes de subir o servidor.
+- **O modelo é aquecido no startup.** Carregar um modelo frio passa fácil dos
+  30 s do `SHOGUN_LLM_TIMEOUT` — sem aquecimento, todo primeiro comando do dia
+  devolvia 503. Por isso o servidor dispara, ao subir, uma chamada de carga ao
+  `/api/chat` (`messages` vazio, a forma documentada de só carregar o modelo),
+  em **segundo plano**: `/health` e `/comando` não esperam o carregamento. O
+  teto dessa chamada é `SHOGUN_LLM_AQUECIMENTO_TIMEOUT` (default 300 s),
+  separado do timeout de comando porque ninguém está aguardando resposta.
+  Falha de aquecimento é só warning no log — é otimização, não requisito. O
+  aquecimento alcança o Ollama também quando ele é o **fallback**, não só o
+  principal. Se um comando chegar enquanto o modelo ainda carrega, o
+  comportamento antigo (timeout + fallback) continua valendo.
 - **`SHOGUN_MAX_TOKENS` vira `num_predict`.** Vale para o modelo local o mesmo
   teto configurado para os outros provedores.
 - **Ollama fora do ar não derruba a aplicação.** A falha de conexão vira

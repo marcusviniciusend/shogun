@@ -38,6 +38,11 @@ class Settings(BaseSettings):
     # Timeout (segundos) das chamadas ao LLM — curto o bastante para o fallback
     # entrar em ação antes de o cliente desistir.
     shogun_llm_timeout: float = 30.0
+    # Timeout (segundos) do aquecimento do modelo local no startup. Separado do
+    # timeout de comando de proposito: carregar um modelo frio passa facil dos
+    # 30s, e o aquecimento roda em segundo plano, sem cliente esperando — pode
+    # ser generoso.
+    shogun_llm_aquecimento_timeout: float = 300.0
 
     # --- Credenciais e modelos por provedor --------------------------------
     anthropic_api_key: str = ""
