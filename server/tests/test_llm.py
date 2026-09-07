@@ -563,8 +563,14 @@ async def test_ollama_ok_nao_gasta_api_paga(config):
 # --- registro e factory --------------------------------------------------
 
 
-def test_registro_expoe_os_quatro_provedores():
-    assert set(PROVIDERS) == {"claude", "deepseek", "openai_mini", "ollama"}
+def test_registro_expoe_os_cinco_provedores():
+    assert set(PROVIDERS) == {
+        "claude",
+        "deepseek",
+        "openai_mini",
+        "ollama",
+        "deterministico",
+    }
     assert PROVIDERS["claude"] is ClaudeProvider
 
 
