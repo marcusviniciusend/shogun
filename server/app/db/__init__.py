@@ -13,14 +13,17 @@ from app.db.engine import (
     get_db,
     sessionmaker_do_engine,
 )
-from app.db.models import Base, Message, MessageUso, Session
-from app.db.repositorio import RepositorioConversas
+from app.db.models import Agente, Base, Message, MessageUso, PendenciaAgente, Session
+from app.db.repositorio import RepositorioConversas, RepositorioPendencias
 
 __all__ = [
+    "Agente",
     "Base",
     "Message",
     "MessageUso",
+    "PendenciaAgente",
     "RepositorioConversas",
+    "RepositorioPendencias",
     "Session",
     "criar_engine",
     "criar_tabelas",

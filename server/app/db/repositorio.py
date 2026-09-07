@@ -1,21 +1,24 @@
-"""Repositório das conversas — a rota pede dados, não monta query."""
+"""Repositórios do banco — quem consome pede dados, não monta query."""
 
 import uuid
 from collections.abc import Sequence
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import NamedTuple
 
-from sqlalchemy import func, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.orm import Session as DbSession
 
 from app.db.models import (
     ROLE_ASSISTENTE,
     ROLE_USUARIO,
+    Agente,
     Message,
     MessageUso,
+    PendenciaAgente,
     Session,
     agora_utc,
 )
+from app.domain import Pendencia, StatusAgente
 
 
 def novo_id_de_sessao() -> str:
@@ -156,3 +159,108 @@ class ConsumoProvider(NamedTuple):
 def historico_como_texto(mensagens: Sequence[Message]) -> list[tuple[str, str]]:
     """`(role, content)` de cada mensagem — o que o montador de prompt consome."""
     return [(m.role, m.content) for m in mensagens]
+
+
+def _utc_naive(momento: datetime) -> datetime:
+    """Normaliza para o formato interno do banco (UTC sem tzinfo).
+
+    Valor aware é convertido; valor naive é assumido como UTC — a mesma
+    convenção de `agora_utc()` (ver `docs/DATABASE.md`).
+    """
+    if momento.tzinfo is not None:
+        return momento.astimezone(timezone.utc).replace(tzinfo=None)
+    return momento
+
+
+class RepositorioPendencias:
+    """Leitura e escrita de `agentes` e `pendencias`.
+
+    Implementa o protocolo que o `ShogunOrquestradorProvider` espera receber
+    injetado. Fala o vocabulário do domínio (`Pendencia`, `StatusAgente`) na
+    borda: quem consome nunca vê linha de tabela. Timestamps entram em qualquer
+    fuso (naive = UTC) e saem sempre aware em UTC.
+    """
+
+    def __init__(self, db: DbSession) -> None:
+        self._db = db
+
+    # -- leitura (contrato PendenciasProvider) -------------------------------
+
+    def listar(self) -> list[Pendencia]:
+        """Todas as pendências, mais urgentes primeiro — a mesma ordenação do
+        provider em memória, com `id` de desempate para ser determinística."""
+        consulta = (
+            select(PendenciaAgente, Agente.nome)
+            .join(Agente, PendenciaAgente.agente_id == Agente.id)
+            .order_by(
+                PendenciaAgente.prioridade.desc(),
+                PendenciaAgente.created_at,
+                PendenciaAgente.id,
+            )
+        )
+        return [
+            self._como_dominio(linha, nome)
+            for linha, nome in self._db.execute(consulta)
+        ]
+
+    def status_do_agente(self, agente_id: str) -> StatusAgente | None:
+        """`None` para agente desconhecido — o default é decisão do provider."""
+        agente = self._db.get(Agente, agente_id)
+        return StatusAgente(agente.status) if agente is not None else None
+
+    # -- escrita (usada pelo orquestrador) -----------------------------------
+
+    def registrar(self, pendencia: Pendencia) -> None:
+        self._garantir_agente(
+            pendencia.agente_id, nome=pendencia.agente_nome, status=pendencia.status
+        )
+        self._db.add(
+            PendenciaAgente(
+                agente_id=pendencia.agente_id,
+                descricao=pendencia.descricao,
+                status=pendencia.status.value,
+                prioridade=pendencia.prioridade,
+                created_at=_utc_naive(pendencia.timestamp),
+            )
+        )
+        self._db.commit()
+
+    def atualizar_status(self, agente_id: str, status: StatusAgente) -> None:
+        self._garantir_agente(agente_id, nome=None, status=status)
+        self._db.commit()
+
+    def limpar(self, agente_id: str) -> None:
+        """Apaga as pendências do agente; o status dele fica (é conhecimento
+        sobre o agente, não sobre a fila)."""
+        self._db.execute(
+            delete(PendenciaAgente).where(PendenciaAgente.agente_id == agente_id)
+        )
+        self._db.commit()
+
+    # -- internos -------------------------------------------------------------
+
+    def _garantir_agente(
+        self, agente_id: str, nome: str | None, status: StatusAgente
+    ) -> Agente:
+        agente = self._db.get(Agente, agente_id)
+        if agente is None:
+            agente = Agente(id=agente_id, nome=nome, status=status.value)
+            self._db.add(agente)
+        else:
+            agente.status = status.value
+            if nome is not None:
+                agente.nome = nome
+        return agente
+
+    @staticmethod
+    def _como_dominio(linha: PendenciaAgente, nome: str | None) -> Pendencia:
+        return Pendencia(
+            agente_id=linha.agente_id,
+            # `nome` nulo só acontece para agente que nunca registrou pendência,
+            # e esse não aparece neste join — o fallback é cinto de segurança.
+            agente_nome=nome or linha.agente_id,
+            status=StatusAgente(linha.status),
+            descricao=linha.descricao,
+            timestamp=linha.created_at.replace(tzinfo=timezone.utc),
+            prioridade=linha.prioridade,
+        )
