@@ -10,59 +10,26 @@
  * consomem estes tipos" em `shared/README.md`.
  */
 
+/*
+ * Os contratos de leitura (GET /pendencias, GET /sessoes, GET
+ * /sessoes/{id}/mensagens) foram promovidos a `shared/ts` quando o desktop
+ * passou a consumi-los tipado — as duplicatas locais da rodada 5 sairam.
+ * Nota de datetime (documentada la): `timestamp` de pendencia vem com "Z";
+ * `criada_em`/`atualizada_em` de sessao e mensagem vem SEM sufixo (UTC
+ * implicito) — quem exibe acrescenta o "Z" antes de criar o Date.
+ */
 export type {
   AgentAction as AgentActionWire,
   ClientInstruction as ClientInstructionWire,
   CommandRequest as CommandRequestWire,
   CommandResponse as CommandResponseWire,
+  MensagemOut as MensagemHistoricoWire,
+  MensagensResponse as MensagensResponseWire,
+  PendenciaOut as PendenciaWire,
+  PendenciasResponse as PendenciasResponseWire,
+  SessaoOut as SessaoResumoWire,
+  SessoesResponse as SessoesResponseWire,
 } from "../../../shared/ts";
-
-/*
- * Shapes combinados na rodada 5 (GET /sessoes, GET /sessoes/{id}/mensagens,
- * GET /pendencias). Contratos ainda so do servidor — quando estabilizarem,
- * promover a `shared/` nas duas pontas, como o proprio servidor documenta.
- */
-
-/** Resumo de uma conversa em GET /sessoes. */
-export interface SessaoResumoWire {
-  id: string;
-  criada_em: string;
-  atualizada_em: string;
-  titulo: string;
-  total_mensagens: number;
-}
-
-export interface SessoesResponseWire {
-  total: number;
-  sessoes: SessaoResumoWire[];
-}
-
-/** Uma fala do historico em GET /sessoes/{id}/mensagens. */
-export interface MensagemHistoricoWire {
-  autor: "usuario" | "shogun";
-  texto: string;
-  criada_em: string;
-}
-
-export interface MensagensResponseWire {
-  session_id: string;
-  mensagens: MensagemHistoricoWire[];
-}
-
-/** Pendencia de GET /pendencias — espelha `Pendencia` do dominio do servidor. */
-export interface PendenciaWire {
-  agente_id: string;
-  agente_nome: string;
-  status: "executando" | "pendente" | "travado" | "erro" | "concluido";
-  descricao: string;
-  timestamp: string;
-  prioridade: number;
-}
-
-export interface PendenciasResponseWire {
-  total: number;
-  pendencias: PendenciaWire[];
-}
 
 /** Mensagem exibida no chat. Tipo de interface, nao trafega na rede. */
 export interface MensagemChat {

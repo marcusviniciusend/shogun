@@ -101,6 +101,10 @@ export default function App({ temaInicial }: Props) {
   // Guarda contra sobreposicao tick automatico x clique manual — ref, e nao
   // estado, porque o intervalo le o valor da hora, nao o do render.
   const consultandoAgentesRef = useRef(false);
+  // 429 no /pendencias: instante (ms) ate o qual o refresh AUTOMATICO fica
+  // suspenso, honrando o Retry-After. So o tick respeita a pausa — o clique
+  // manual continua livre, e uma acao deliberada do usuario.
+  const pausaAgentesAteRef = useRef<number | null>(null);
 
   const [sessoes, setSessoes] = useState<SessaoResumoWire[]>([]);
   const [sessoesErro, setSessoesErro] = useState<string | null>(null);
@@ -259,7 +263,15 @@ export default function App({ temaInicial }: Props) {
       setPendencias(resposta.pendencias);
       setTotalPendencias(resposta.total);
       setAgentesAtualizadoEm(new Date());
+      pausaAgentesAteRef.current = null;
     } catch (e) {
+      // Rate limit: suspende o refresh automatico pelo tempo que o servidor
+      // pediu (sem Retry-After, um ciclo inteiro). Reenviar automatico em 429
+      // e exatamente o que o limite pune.
+      if (e instanceof ErroComando && e.tipo === "rate_limit") {
+        pausaAgentesAteRef.current =
+          Date.now() + (e.retryAfterSegundos ?? REFRESH_AGENTES_MS / 1000) * 1000;
+      }
       setErroAgentes(registrarFalha(e));
     } finally {
       consultandoAgentesRef.current = false;
@@ -274,10 +286,11 @@ export default function App({ temaInicial }: Props) {
   useEffect(() => {
     if (estadoServidor !== "ok") return;
     void atualizarAgentes();
-    const timer = setInterval(
-      () => void atualizarAgentes(),
-      REFRESH_AGENTES_MS,
-    );
+    const timer = setInterval(() => {
+      const pausaAte = pausaAgentesAteRef.current;
+      if (pausaAte !== null && Date.now() < pausaAte) return;
+      void atualizarAgentes();
+    }, REFRESH_AGENTES_MS);
     return () => clearInterval(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [estadoServidor, config]);
