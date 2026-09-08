@@ -129,6 +129,14 @@ A URL não fica no `alembic.ini`: `alembic/env.py` lê `SHOGUN_DATABASE_URL`, a
 mesma variável do servidor. Duas fontes de verdade para o endereço do banco é
 como se migra um banco e se roda contra outro.
 
+O startup **confere** a migração, mesmo sem executá-la: se a revisão aplicada no
+banco (`alembic_version`) não é a head dos scripts, o servidor loga erro alto
+com o comando a rodar e **recusa subir** — mesmo precedente do token exposto,
+porque um processo de pé respondendo 500 nas rotas de banco parece saudável no
+`/health` e engana o supervisor (foi exatamente o deploy quebrado que motivou a
+checagem). `SHOGUN_CHECAR_MIGRACOES=0` desliga, só para diagnóstico; os testes
+desligam porque usam banco em memória criado fora do Alembic.
+
 ### Sessão de conversa
 
 `CommandRequest.session_id` é opcional. Nulo significa conversa nova: o servidor
@@ -245,6 +253,46 @@ O contrato da resposta vive na própria rota (`app/api/pendencias.py`), como o
 `/consumo`; quando um cliente tipado consumir, o modelo é promovido a `shared/`
 nas duas pontas.
 
+### `GET /sessoes` e `GET /sessoes/{id}/mensagens`
+
+Histórico de conversas — o que permite ao cliente começar conversa nova
+(mandando `session_id` nulo no `/comando`) e reabrir as antigas. Mesma
+autenticação do `/comando`. **O shape é contrato combinado com o desktop**:
+mudança aqui exige combinar de novo.
+
+`GET /sessoes` lista as sessões da mais recentemente ativa para a mais antiga.
+O `titulo` é derivado na leitura (primeiras 6 palavras da primeira fala do
+usuário, com `…` quando corta; `(conversa vazia)` sem fala do usuário) — sem
+coluna nova no schema.
+
+```json
+{
+  "total": 2,
+  "sessoes": [
+    { "id": "9f2c...", "criada_em": "2026-09-07T18:00:00",
+      "atualizada_em": "2026-09-07T18:03:12",
+      "titulo": "me lembra de pagar a conta…", "total_mensagens": 6 }
+  ]
+}
+```
+
+`GET /sessoes/{id}/mensagens` devolve a conversa em ordem cronológica
+(`autor` = `usuario` | `shogun`); sessão inexistente responde `404`.
+
+```json
+{
+  "session_id": "9f2c...",
+  "mensagens": [
+    { "autor": "usuario", "texto": "bom dia, Shogun",
+      "criada_em": "2026-09-07T18:00:00" },
+    { "autor": "shogun", "texto": "Bom dia, Marcus.",
+      "criada_em": "2026-09-07T18:00:02" }
+  ]
+}
+```
+
+Os modelos vivem na própria rota (`app/api/sessoes.py`), como o `/consumo`.
+
 ### Ações suportadas
 
 | ação | comportamento |
@@ -257,9 +305,12 @@ nas duas pontas.
 
 O contrato `PendenciasProvider` (com `Pendencia` e `StatusAgente`) vive em
 `app/domain/`. `app/core/pendencias.py` é apenas o ponto de injeção do FastAPI:
-`get_pendencias_provider` devolve a implementação padrão
-(`ShogunOrquestradorProvider`). Trocar para `MaestriProvider` quando a API existir
-é mudar uma linha — nenhuma rota precisa mudar.
+`get_pendencias_provider` devolve a implementação padrão —
+`ShogunOrquestradorProvider` apoiado no banco (`RepositorioPendencias` sobre a
+sessão do request, um provider por request). O banco é exigido como no resto do
+servidor; o modo em memória do provider existe como construção explícita (útil
+em teste), não como fallback silencioso. Trocar para `MaestriProvider` quando a
+API existir é mudar uma linha — nenhuma rota precisa mudar.
 
 Em testes, sobrescreva com `app.dependency_overrides[get_pendencias_provider]`;
 o mesmo vale para `get_llm_provider` e `get_settings`.
