@@ -17,6 +17,23 @@ from shared.python import (  # noqa: E402
     ClientInstruction,
     CommandRequest,
     CommandResponse,
+    MensagemOut,
+    MensagensResponse,
+    PendenciaOut,
+    PendenciasResponse,
+    SessaoOut,
+    SessoesResponse,
 )
 
-__all__ = ["AgentAction", "ClientInstruction", "CommandRequest", "CommandResponse"]
+__all__ = [
+    "AgentAction",
+    "ClientInstruction",
+    "CommandRequest",
+    "CommandResponse",
+    "MensagemOut",
+    "MensagensResponse",
+    "PendenciaOut",
+    "PendenciasResponse",
+    "SessaoOut",
+    "SessoesResponse",
+]

@@ -95,3 +95,75 @@ export interface AgentAction {
    */
   instruction?: ClientInstruction | null;
 }
+
+/*
+ * Contratos de leitura (GET /pendencias e GET /sessoes).
+ *
+ * Promovidos das rotas quando o desktop passou a consumi-los tipado.
+ * Datetimes trafegam como string ISO 8601: `timestamp` de pendencia vem com
+ * fuso UTC ("...Z"); `criada_em`/`atualizada_em` de sessao e mensagem vem sem
+ * sufixo de fuso (UTC implicito, o formato interno do banco).
+ */
+
+/**
+ * Uma pendencia aberta de um agente, como o GET /pendencias devolve.
+ *
+ * Espelho de fio do modelo de dominio do servidor; `status` carrega os
+ * valores do enum StatusAgente.
+ */
+export interface PendenciaOut {
+  agente_id: string;
+  agente_nome: string;
+  status: "executando" | "pendente" | "travado" | "erro" | "concluido";
+  descricao: string;
+  /** ISO 8601, UTC ("...Z"). */
+  timestamp: string;
+  /** Maior valor = mais urgente. */
+  prioridade: number;
+}
+
+/**
+ * Resposta do GET /pendencias: abertas, das mais urgentes para as menos.
+ *
+ * Mesma ordenacao da fala do /comando (prioridade decrescente, depois
+ * timestamp): o painel e a voz nao podem discordar sobre o que e mais urgente.
+ */
+export interface PendenciasResponse {
+  total: number;
+  pendencias: PendenciaOut[];
+}
+
+/**
+ * Resumo de uma conversa, como o GET /sessoes devolve.
+ *
+ * `titulo` e derivado na leitura (primeiras palavras da primeira fala do
+ * usuario, ou "(conversa vazia)") — o cliente sempre recebe algo exibivel.
+ */
+export interface SessaoOut {
+  id: string;
+  /** ISO 8601 sem sufixo de fuso (UTC implicito). */
+  criada_em: string;
+  atualizada_em: string;
+  titulo: string;
+  total_mensagens: number;
+}
+
+/** Resposta do GET /sessoes: da mais recentemente ativa para a mais antiga. */
+export interface SessoesResponse {
+  total: number;
+  sessoes: SessaoOut[];
+}
+
+/** Uma fala do historico, como o GET /sessoes/{id}/mensagens devolve. */
+export interface MensagemOut {
+  autor: "usuario" | "shogun";
+  texto: string;
+  /** ISO 8601 sem sufixo de fuso (UTC implicito). */
+  criada_em: string;
+}
+
+/** Resposta do GET /sessoes/{id}/mensagens, em ordem cronologica. */
+export interface MensagensResponse {
+  session_id: string;
+  mensagens: MensagemOut[];
+}

@@ -4,28 +4,20 @@ Motivo: o session_id persistido no cliente tornava a conversa eterna. Com o
 historico exposto, o cliente pode comecar conversa nova (mandando session_id
 nulo no /comando) e reabrir as antigas.
 
-O shape das respostas e CONTRATO COMBINADO com o desktop, que desenvolve
-contra ele em paralelo — mudanca aqui exige combinar de novo:
-
-    GET /sessoes
-    {"total": N, "sessoes": [{"id", "criada_em", "atualizada_em",
-                              "titulo", "total_mensagens"}]}
-
-    GET /sessoes/{id}/mensagens
-    {"session_id": "...", "mensagens": [{"autor": "usuario"|"shogun",
-                                         "texto", "criada_em"}]}
-
-Modelos na propria rota, como o precedente do /consumo: promove-se a shared/
-quando um cliente tipado consumir via contrato gerado.
+O shape das respostas e CONTRATO COMBINADO com o desktop e vive em `shared/`
+(SessaoOut, SessoesResponse, MensagemOut, MensagensResponse) — mudanca la
+exige combinar de novo com quem consome.
 """
 
-from datetime import datetime
-from typing import Literal
-
 from fastapi import APIRouter, Depends, HTTPException, status
-from pydantic import BaseModel
 from starlette.concurrency import run_in_threadpool
 
+from app.core.contracts import (
+    MensagemOut,
+    MensagensResponse,
+    SessaoOut,
+    SessoesResponse,
+)
 from app.core.persistencia import RepositorioConversas, get_repositorio
 from app.core.rate_limit import limitar_leitura
 from app.core.security import require_auth
@@ -43,30 +35,6 @@ _PALAVRAS_TITULO = 6
 #: Titulo de sessao sem nenhuma fala do usuario (ex.: comando que falhou no
 #: LLM antes da resposta) — o cliente sempre recebe algo exibivel.
 _TITULO_VAZIO = "(conversa vazia)"
-
-
-class SessaoOut(BaseModel):
-    id: str
-    criada_em: datetime
-    atualizada_em: datetime
-    titulo: str
-    total_mensagens: int
-
-
-class SessoesResponse(BaseModel):
-    total: int
-    sessoes: list[SessaoOut]
-
-
-class MensagemOut(BaseModel):
-    autor: Literal["usuario", "shogun"]
-    texto: str
-    criada_em: datetime
-
-
-class MensagensResponse(BaseModel):
-    session_id: str
-    mensagens: list[MensagemOut]
 
 
 def _titulo(primeira_mensagem: str | None) -> str:
