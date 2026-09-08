@@ -18,12 +18,14 @@ export function Configuracoes({ config, onSalvar, onFechar }: Props) {
   const [serverUrl, setServerUrl] = useState(config.serverUrl);
   const [token, setToken] = useState(config.token);
   const [tema, setTema] = useState<Tema>(config.tema);
+  const [mudo, setMudo] = useState(config.mudo);
   const [salvo, setSalvo] = useState(false);
 
   useEffect(() => {
     setServerUrl(config.serverUrl);
     setToken(config.token);
     setTema(config.tema);
+    setMudo(config.mudo);
   }, [config]);
 
   /**
@@ -38,7 +40,7 @@ export function Configuracoes({ config, onSalvar, onFechar }: Props) {
 
   function salvar(e: React.FormEvent) {
     e.preventDefault();
-    onSalvar({ serverUrl: serverUrl.trim(), token: token.trim(), tema });
+    onSalvar({ serverUrl: serverUrl.trim(), token: token.trim(), tema, mudo });
     setSalvo(true);
     setTimeout(() => setSalvo(false), 2000);
   }
@@ -99,6 +101,38 @@ export function Configuracoes({ config, onSalvar, onFechar }: Props) {
               </button>
             ))}
           </div>
+        </fieldset>
+
+        <fieldset className="config-tema">
+          <legend>Voz</legend>
+          <div
+            className="config-tema-opcoes"
+            role="radiogroup"
+            aria-label="Voz das respostas"
+          >
+            <button
+              type="button"
+              role="radio"
+              aria-checked={!mudo}
+              className={`tema-opcao${!mudo ? " ativa" : ""}`}
+              onClick={() => setMudo(false)}
+            >
+              Falar
+            </button>
+            <button
+              type="button"
+              role="radio"
+              aria-checked={mudo}
+              className={`tema-opcao${mudo ? " ativa" : ""}`}
+              onClick={() => setMudo(true)}
+            >
+              Mudo
+            </button>
+          </div>
+          <small>
+            As respostas do chat são faladas com a voz do sistema (pt-BR quando
+            instalada). O ícone na barra lateral alterna o mesmo ajuste.
+          </small>
         </fieldset>
 
         <div className="config-acoes">

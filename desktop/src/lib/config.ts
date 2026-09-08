@@ -16,6 +16,8 @@ export interface Config {
   /** Bearer token (SHOGUN_AUTH_TOKEN do servidor). Vazio = sem header. */
   token: string;
   tema: Tema;
+  /** `true` silencia a fala das respostas (TTS). Persistido como o tema. */
+  mudo: boolean;
 }
 
 export const CONFIG_DEFAULT: Config = {
@@ -23,6 +25,8 @@ export const CONFIG_DEFAULT: Config = {
   token: "",
   // Washi e o padrao: o desenho nasceu claro, o escuro e a alternativa.
   tema: "washi",
+  // O Shogun nasce FALANDO na v1.0 — mudo e a excecao, nao o padrao.
+  mudo: false,
 };
 
 const TEMAS: Tema[] = ["washi", "sumi", "sistema"];
@@ -88,6 +92,7 @@ export async function carregarConfig(): Promise<Config> {
   return {
     serverUrl: (await s.get<string>("serverUrl")) ?? CONFIG_DEFAULT.serverUrl,
     token: (await s.get<string>("token")) ?? CONFIG_DEFAULT.token,
+    mudo: (await s.get<boolean>("mudo")) ?? CONFIG_DEFAULT.mudo,
     // Valor invalido no store (versao antiga, edicao manual) cai no default
     // em vez de virar um `data-tema` que o CSS nao conhece.
     tema: TEMAS.includes(guardado as Tema)
@@ -101,6 +106,7 @@ export async function salvarConfig(config: Config): Promise<void> {
   await s.set("serverUrl", config.serverUrl.replace(/\/+$/, ""));
   await s.set("token", config.token);
   await s.set("tema", config.tema);
+  await s.set("mudo", config.mudo);
 }
 
 /** Sessao de conversa corrente — persistida para sobreviver a reaberturas. */
