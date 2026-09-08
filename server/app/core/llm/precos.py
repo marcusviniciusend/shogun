@@ -16,9 +16,10 @@ inclusive para mensagens antigas — precisão retroativa exigiria versionar
 preço por período, complexidade que não se justifica para um usuário.
 
 Referências (capturadas em 2026-09-07):
-- claude: Claude Sonnet (anthropic.com/pricing) — US$ 3,00 input / US$ 15,00
-  output. ATENÇÃO: `shogun_model` hoje aponta para `claude-opus-5`
-  (US$ 5,00 / US$ 25,00); a linha segue a instrução de precificar o Sonnet.
+- claude: Claude Opus (anthropic.com/pricing, capturada em 2026-09-07) —
+  US$ 5,00 input / US$ 25,00 output, o preço do `claude-opus-5` que é o
+  default de `shogun_model`. (A linha precificava o Sonnet, US$ 3,00/15,00,
+  divergindo do modelo em uso — ressalva corrigida.)
 - deepseek: deepseek-chat (api-docs.deepseek.com/quick_start/pricing), tabela
   vigente desde 2025-09 — US$ 0,28 input (cache miss) / US$ 0,42 output.
 - openai_mini: gpt-4o-mini (openai.com/api/pricing) — US$ 0,15 / US$ 0,60.
@@ -38,7 +39,7 @@ class PrecoProvider(BaseModel):
 
 
 PRECOS: dict[str, PrecoProvider] = {
-    "claude": PrecoProvider(input_usd_por_milhao=3.00, output_usd_por_milhao=15.00),
+    "claude": PrecoProvider(input_usd_por_milhao=5.00, output_usd_por_milhao=25.00),
     "deepseek": PrecoProvider(input_usd_por_milhao=0.28, output_usd_por_milhao=0.42),
     "openai_mini": PrecoProvider(
         input_usd_por_milhao=0.15, output_usd_por_milhao=0.60
