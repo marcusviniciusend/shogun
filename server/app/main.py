@@ -7,10 +7,17 @@ from contextlib import asynccontextmanager, suppress
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api import comando_router, consumo_router, pendencias_router
+from app.api import (
+    comando_router,
+    consumo_router,
+    pendencias_router,
+    sessoes_router,
+)
 from app.core.config import settings
 from app.core.llm import aquecer_provider, get_llm_provider
 from app.core.rede import descobrir_bind
+from app.db import engine
+from app.db.migracao import MigracaoPendenteError, verificar_migracoes
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -26,6 +33,17 @@ async def lifespan(_: FastAPI):
     bind = descobrir_bind(settings.shogun_host)
     settings.validar_exposicao(bind)
     logger.info("Bind efetivo: %s", bind)
+
+    # Banco fora da head do Alembic = rotas de banco respondendo 500 com o
+    # /health verde. Recusa subir, com o comando a rodar na mensagem — mesma
+    # postura do token exposto. A checagem e uma consulta barata e sincrona;
+    # no boot, bloquear e o comportamento certo.
+    if settings.shogun_checar_migracoes:
+        try:
+            verificar_migracoes(engine)
+        except MigracaoPendenteError as exc:
+            logger.error("MIGRACAO PENDENTE — servidor NAO vai subir. %s", exc)
+            raise
 
     provider = get_llm_provider()
     logger.info("Provedor de LLM ativo: %s", provider.nome)
@@ -70,6 +88,7 @@ if settings.allowed_origins:
 app.include_router(comando_router)
 app.include_router(consumo_router)
 app.include_router(pendencias_router)
+app.include_router(sessoes_router)
 
 
 @app.get("/health")

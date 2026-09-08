@@ -68,6 +68,38 @@ class RepositorioConversas:
         self._db.add(sessao)
         self._db.commit()
 
+    def listar_sessoes(self) -> list["SessaoResumo"]:
+        """Todas as sessões, da mais recentemente ativa para a mais antiga.
+
+        A primeira mensagem do usuário e a contagem vêm por subconsulta
+        correlacionada, na mesma query — sem coluna nova no schema e sem
+        carregar `messages` inteira para derivar um título.
+        """
+        primeira_do_usuario = (
+            select(Message.content)
+            .where(Message.session_id == Session.id, Message.role == ROLE_USUARIO)
+            .order_by(Message.id)
+            .limit(1)
+            .scalar_subquery()
+        )
+        total_mensagens = (
+            select(func.count(Message.id))
+            .where(Message.session_id == Session.id)
+            .scalar_subquery()
+        )
+        consulta = select(
+            Session.id,
+            Session.created_at,
+            Session.updated_at,
+            primeira_do_usuario,
+            total_mensagens,
+        ).order_by(Session.updated_at.desc(), Session.id)
+
+        return [
+            SessaoResumo(id, criada, atualizada, primeira, int(total))
+            for id, criada, atualizada, primeira, total in self._db.execute(consulta)
+        ]
+
     # -- mensagens ---------------------------------------------------------
 
     def historico(self, session_id: str, limite: int | None = None) -> list[Message]:
@@ -145,6 +177,18 @@ class RepositorioConversas:
             ConsumoProvider(provider, int(mensagens), int(entrada), int(saida))
             for provider, mensagens, entrada, saida in self._db.execute(consulta)
         ]
+
+
+class SessaoResumo(NamedTuple):
+    """Resumo de uma sessão para listagem de histórico."""
+
+    id: str
+    criada_em: datetime
+    atualizada_em: datetime
+    #: Conteúdo integral da primeira fala do usuário; `None` em sessão sem ela.
+    #: Quem deriva o título (e decide quantas palavras mostrar) é a rota.
+    primeira_mensagem_usuario: str | None
+    total_mensagens: int
 
 
 class ConsumoProvider(NamedTuple):

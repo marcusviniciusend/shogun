@@ -78,6 +78,11 @@ class Settings(BaseSettings):
     # Arquivo relativo ao diretorio de onde o servidor e iniciado (server/).
     # O schema e criado pelo Alembic: `alembic upgrade head`.
     shogun_database_url: str = "sqlite:///./shogun.db"
+    # Checagem no startup: o banco precisa estar na head do Alembic, senao o
+    # servidor recusa subir (precedente do token exposto — e melhor nao subir
+    # do que subir respondendo 500 nas rotas de banco). 0/false desliga, para
+    # testes com banco em memoria e diagnostico.
+    shogun_checar_migracoes: bool = True
     # Quantas mensagens do historico entram no prompt. Janela por contagem, nao
     # por orcamento de tokens: o limite precisa caber no menor contexto entre os
     # provedores (o modelo local), e contar mensagem e previsivel sem tokenizer.
