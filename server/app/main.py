@@ -7,7 +7,12 @@ from contextlib import asynccontextmanager, suppress
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api import comando_router, consumo_router, pendencias_router
+from app.api import (
+    comando_router,
+    consumo_router,
+    pendencias_router,
+    sessoes_router,
+)
 from app.core.config import settings
 from app.core.llm import aquecer_provider, get_llm_provider
 from app.core.rede import descobrir_bind
@@ -70,6 +75,7 @@ if settings.allowed_origins:
 app.include_router(comando_router)
 app.include_router(consumo_router)
 app.include_router(pendencias_router)
+app.include_router(sessoes_router)
 
 
 @app.get("/health")
