@@ -12,9 +12,13 @@ from starlette.concurrency import run_in_threadpool
 
 from app.core.llm.precos import PRECOS, custo_usd
 from app.core.persistencia import RepositorioConversas, get_repositorio
+from app.core.rate_limit import limitar_leitura
 from app.core.security import require_auth
 
-router = APIRouter(tags=["consumo"], dependencies=[Depends(require_auth)])
+router = APIRouter(
+    tags=["consumo"],
+    dependencies=[Depends(require_auth), Depends(limitar_leitura)],
+)
 
 
 class ConsumoProviderOut(BaseModel):
