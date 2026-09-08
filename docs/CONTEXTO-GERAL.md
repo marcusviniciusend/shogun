@@ -6,7 +6,7 @@
 > (com a justificativa de cada uma), as decisões em aberto e as pendências
 > técnicas.
 >
-> **Última atualização:** 2026-09-05.
+> **Última atualização:** 2026-09-07 (pós-rodada 6 — PRs #17 a #33).
 >
 > Este arquivo **descreve**; ele não substitui as fontes. Quando divergir do
 > código, o código vence — e o documento precisa ser corrigido.
@@ -37,24 +37,17 @@ local) → `POST /comando` com o texto → servidor interpreta a intenção via
 
 ### 1.1 Onde o código está
 
-**Tudo está em `dev`** (`f923204`). Não há branch de feature aberta: os quatro
-PRs foram mergeados e o GitHub removeu as branches remotas ao fechá-los.
+**Tudo está em `dev`** (`1a5b6a8`, PR #33). O dia 2026-09-07 mergeou os PRs
+#17 a #33 — contrato e execução de `abrir_app`, provider de pendências
+persistente, rotas de leitura (`/pendencias`, `/sessoes`, `/consumo`),
+aquecimento do modelo no startup, checagem de migração, rate limit, TTS e
+histórico de conversas no desktop, e a promoção dos contratos de leitura para
+`shared/`. O detalhe de cada um está no histórico de merges de `dev`.
 
-| PR | Branch | O que trouxe |
-|---|---|---|
-| #3 | `feature/servidor-central` | `/comando`, camada de LLM, domínio, testes |
-| #4 | `feature/docs-fluxo-mensagem` | `docs/DESIGN.md`, `DATABASE.md`, `AGENTS.md` |
-| #5 | `feature/acesso-remoto-tailscale` | `SHOGUN_HOST`, validação do bind, CORS |
-| #6 | `feature/persistencia-sqlite` | `sessions`/`messages`, Alembic, histórico no prompt |
+Suíte na ponta de `dev`: **231 passed**.
 
-Suíte na ponta de `dev`: **134 passed**.
-
-`main` continua tendo só `README.md` + `LICENSE`, e segue sendo a branch default
+`main` está parada na estrutura inicial (PR #1) e segue sendo a branch default
 (errada) do repositório no GitHub — ver §5.
-
-> Esta seção substituiu um aviso, agora obsoleto, de que "quase nada do servidor
-> está em `dev`" e de que os documentos de `docs/` só existiam numa branch
-> separada. Ambas as coisas deixaram de valer com os merges acima.
 
 ### 1.2 `server/` — o único componente com lógica real
 
@@ -64,18 +57,21 @@ Python 3.11+ e FastAPI. Sem empacotamento (não há `pyproject.toml` instalável
 
 ```
 server/app/
-├── main.py                  # FastAPI: /health + router de comando + lifespan
-├── api/comando.py           # POST /comando
+├── main.py                  # FastAPI: /health + routers + lifespan (checagem de
+│                            # migração + aquecimento do modelo em background)
+├── api/                     # comando.py, pendencias.py, sessoes.py, consumo.py
 ├── core/
 │   ├── config.py            # Settings (pydantic-settings, lê .env)
 │   ├── contracts.py         # ponte para shared/python
 │   ├── security.py          # autenticação Bearer
+│   ├── rate_limit.py        # 429 + Retry-After por token (comando/leitura)
 │   ├── rede.py              # descobre o bind real do uvicorn no startup
 │   ├── pendencias.py        # injeção do PendenciasProvider no FastAPI
 │   ├── persistencia.py      # injeção do RepositorioConversas no FastAPI
 │   └── llm/                 # base, registry, fallback, claude, openai_compat,
-│                            # ollama, historico (prompt com histórico)
-├── db/                      # persistência — models, engine, repositorio
+│                            # ollama, deterministico, precos, aquecimento,
+│                            # historico (prompt com histórico)
+├── db/                      # models, engine, repositorio, migracao (checagem)
 ├── domain/                  # domínio puro — sem HTTP, sem FastAPI
 │   ├── pendencias.py        # StatusAgente, Pendencia, PendenciasProvider (ABC)
 │   └── providers/           # MaestriProvider (stub), ShogunOrquestradorProvider
@@ -120,6 +116,7 @@ Provedores registrados em `PROVIDERS` (`core/llm/registry.py`):
 | `deepseek` | `DeepSeekProvider` (`openai_compat.py`) | JSON mode + schema no prompt |
 | `openai_mini` | `OpenAIMiniProvider` (`openai_compat.py`) | `response_format` json_schema `strict` |
 | `ollama` | `OllamaProvider` (`ollama.py`) | `format` com JSON Schema completo, via `/api/chat` |
+| `deterministico` | `DeterministicoProvider` (`deterministico.py`) | não usa LLM: palavras-chave sobre o texto normalizado; nunca levanta `LLMIndisponivelError` — fallback final que sempre responde |
 
 Notas do `OllamaProvider` que custaram decisão:
 
@@ -145,29 +142,37 @@ concreta.
 Adicionar um provedor = uma classe implementando o `Protocol` (construtor
 recebendo `Settings`) + uma entrada em `PROVIDERS`. Nada mais muda.
 
-#### Endpoint `POST /comando`
+#### Endpoints
 
-`server/app/api/comando.py`. Recebe o texto **já transcrito** (`CommandRequest`) e
-devolve `CommandResponse` (`{session_id, text, actions}`). Fluxo:
+`POST /comando` (`server/app/api/comando.py`) recebe o texto **já transcrito**
+(`CommandRequest`) e devolve `CommandResponse` (`{session_id, text, actions}`).
+Fluxo:
 
 1. texto vazio → **422**;
-2. `llm.interpretar_comando(texto)`; `LLMIndisponivelError` → **503**;
-3. despacho por `intencao.acao`, hoje um `if/elif` na própria rota:
+2. abre/continua a sessão e grava a fala do usuário (histórico vai no prompt);
+3. `llm.interpretar_comando(...)`; `LLMIndisponivelError` → **503**;
+4. despacho por `intencao.acao`, hoje um `if/elif` na própria rota:
 
 | Ação | Comportamento |
 |---|---|
 | `conversar` | devolve a `resposta_falada` do modelo, sem agente |
 | `consultar_pendencias` | consulta o `PendenciasProvider` injetado, ordena por `(-prioridade, timestamp)`, aplica `limite`, monta a fala |
-| `abrir_app` | **placeholder** — quem tem acesso ao SO é o cliente; falta fechar o contrato |
+| `abrir_app` | **delegada ao cliente**: a action sai com `instruction` estruturada (`ClientInstruction`, em `shared/`) contendo só o **nome** do app e um `fallback_text`; quem executa é o desktop/mobile, a partir de lista curada |
+
+Rotas de leitura, todas atrás do mesmo Bearer: `GET /pendencias` (painel, sem
+gastar LLM), `GET /sessoes` e `GET /sessoes/{id}/mensagens` (histórico de
+conversas) e `GET /consumo` (tokens e custo por provedor, medição gravada em
+`messages_uso`). Rate limit por token (janela deslizante de 60 s, baldes
+separados para comando e leitura; estouro = 429 + `Retry-After`).
 
 Duas propriedades que o código já pratica e que os agentes futuros devem manter:
 **falha de integração externa nunca derruba o comando** (vira
 `AgentAction(status="error")`, não exceção) e **I/O síncrono vai para a
-threadpool** (`run_in_threadpool` sobre `get_pendencias_agentes`, que é síncrono
-e pode fazer I/O).
+threadpool** (`run_in_threadpool` sobre repositórios e provedores síncronos).
 
-Só existe `session_id` de passagem: chega no request e volta na resposta, **sem
-nunca ser gravado**. Não há histórico.
+O `session_id` nulo cria sessão no servidor, que devolve o id; as falas são
+gravadas em `sessions`/`messages` e as últimas `SHOGUN_HISTORICO_MAX_MENSAGENS`
+entram no prompt (ver §4.4).
 
 #### Autenticação
 
@@ -183,17 +188,21 @@ desenvolvimento local; o servidor avisa no log de inicialização.
 `prioridade`), o enum `StatusAgente` e a ABC `PendenciasProvider` com
 `get_pendencias_agentes()` e `get_status_agente(agente_id)` — ambos **síncronos e
 declarados congelados** pelo agente-contratos. Implementações:
-`ShogunOrquestradorProvider` (em memória, é o default da aplicação) e
-`MaestriProvider` (stub — a API do Maestri ainda não existe).
+`ShogunOrquestradorProvider` — **persistente**: a injeção default entrega um
+provider por request apoiado no banco (`RepositorioPendencias` sobre as tabelas
+`agentes`/`pendencias`; o modo em memória segue existindo como construção
+explícita, útil em teste) — e `MaestriProvider` (stub — a API do Maestri ainda
+não existe).
 
 #### Testes
 
-`pytest` a partir de `server/` (`pytest.ini`, `asyncio_mode = auto`). **91
-passando** em `feature/servidor-central` (`test_comando`, `test_domain`,
-`test_llm`). **Nenhum teste chama API real**: provedores com cliente HTTP
-mockado (`httpx.MockTransport`, para exercitar o httpx de verdade) e rotas com
-`app.dependency_overrides` (`get_llm_provider`, `get_pendencias_provider`,
-`get_settings`).
+`pytest` a partir de `server/` (`pytest.ini`, `asyncio_mode = auto`). **231
+passando** na ponta de `dev`. **Nenhum teste chama API real**: provedores com
+cliente HTTP mockado (`httpx.MockTransport`, para exercitar o httpx de verdade),
+rotas com `app.dependency_overrides` (`get_llm_provider`,
+`get_pendencias_provider`, `get_settings`, `get_db`) e banco SQLite em memória.
+A paridade entre `shared/python` e `shared/ts` é verificada por parse estático
+do TS (`test_paridade_contratos.py`), sem toolchain Node no CI.
 
 ### 1.3 `desktop/` e `mobile/` — scaffolds funcionais
 
@@ -202,15 +211,23 @@ WebSocket segue como evolução futura, e ainda não existe no servidor.
 
 | Diretório | Stack | Estado |
 |---|---|---|
-| `desktop/` | Tauri 2 + React (TypeScript) | **foco atual** — dashboard com chat, painel de agentes e configurações |
+| `desktop/` | Tauri 2 + React (TypeScript) | **foco atual** — chat com histórico de conversas, painel de agentes com refresh automático, configurações, TTS e execução de `abrir_app` |
 | `mobile/` | React Native + Expo (TypeScript) | **em backlog** — ver abaixo |
 
 Ambos persistem o `session_id` localmente (`tauri-plugin-store` no desktop,
-`AsyncStorage` no mobile) e o reenviam, então a conversa sobrevive a reaberturas.
-Os tipos do fio vêm de `shared/ts`.
+`AsyncStorage` no mobile) e o reenviam, então a conversa sobrevive a
+reaberturas. O desktop ainda tem: "Nova conversa" e reabertura de conversas
+antigas (`GET /sessoes`), painel consumindo `GET /pendencias` (polling de 30 s,
+sem gastar LLM), execução do `abrir_app` delegado (mapa curado + escopo do
+`tauri-plugin-shell` travando executável e args) e **TTS** via
+`speechSynthesis` do WebView2 (voz pt-BR quando disponível, mudo configurável).
+Os tipos de `POST /comando` vêm de `shared/ts`; os dos GETs de leitura ainda
+são cópia local em `desktop/src/lib/types.ts` (migração para `shared/ts` é
+follow-up registrado).
 
-Captura de voz (STT) e síntese (TTS) **não existem em nenhum dos dois** — hoje a
-conversa é por texto.
+**STT não existe em nenhum dos dois** — a entrada é por texto (decisão: fica
+para a v1.1). A síntese (TTS) existe só no desktop; no mobile fica para o
+pós-descongelamento.
 
 #### ⏸️ `mobile/` está em backlog
 
@@ -225,14 +242,14 @@ resiliência do desktop** — mas o ponto de partida não é zero. Comparando
 
 | Aspecto | Mobile hoje | Falta |
 |---|---|---|
-| timeout de resposta | ✅ 60 s via `AbortController`, e distingue `AbortError` | — (o **desktop** é que não tem; item 2 do levantamento) |
+| timeout de resposta | ✅ 60 s via `AbortController`, e distingue `AbortError` | — (o desktop ganhou o seu no PR #22, junto com retry) |
 | erro de rede | 🟡 captura a exceção e separa timeout do resto | não registra a causa crua (sem `console.error`) e agrupa todo o resto numa frase só: porta sem ninguém escutando, DNS e rota morta ficam indistinguíveis |
 | `GET /health` | 🟡 existe (`verificarSaude`) | é **manual**, só no botão "testar conexão" da aba Config. O chat e a aba Status continuam descobrindo que o servidor caiu gastando uma chamada de LLM |
 | indicador de conexão | ❌ | nenhuma faixa ou badge de "servidor não alcançado" nas telas de uso |
 
-Em resumo: o mobile já resolveu o item 2 do levantamento, que o desktop ainda
-não; falta fechar os itens 1 (parcial) e 5 (a checagem existe, mas não é
-automática nem visível onde importa).
+Em resumo: falta fechar os itens 1 (parcial) e 5 (a checagem existe, mas não é
+automática nem visível onde importa). No desktop, o levantamento inteiro foi
+fechado (PRs #18/#22/#23).
 
 `/health` custa ~1,5 ms, não exige token e não toca no modelo — descobrir por ali
 que o servidor está fora é ordens de grandeza mais barato que por um
@@ -240,13 +257,21 @@ que o servidor está fora é ordens de grandeza mais barato que por um
 
 Referências: `.maestri/levantamento-resiliencia-desktop.md` e a branch
 `feature/desktop-resiliencia-basica`. Itens 3, 4 e 6 do levantamento (retry,
-modelo frio no primeiro comando, erro em duplicata) seguem abertos **nos dois** e
-não são pré-requisito.
+modelo frio no primeiro comando, erro em duplicata) foram fechados no desktop
+(PRs #22/#23) e seguem abertos no mobile — não são pré-requisito para retomar.
 
 ### 1.4 `shared/`
 
-Contratos usados por servidor e clientes: `CommandRequest`, `CommandResponse`,
-`AgentAction` — Pydantic em `shared/python`, TypeScript em `shared/ts`.
+Contratos usados por servidor e clientes — Pydantic em `shared/python`,
+TypeScript em `shared/ts`, paridade verificada por teste:
+
+- do `POST /comando`: `CommandRequest`, `CommandResponse`, `AgentAction` e
+  `ClientInstruction` (execução delegada de `abrir_app` — o servidor manda só o
+  nome do app e um `fallback_text`; regra de consumo documentada no próprio
+  contrato);
+- dos GETs de leitura (promovidos quando o desktop passou a consumir tipado):
+  `PendenciaOut`/`PendenciasResponse`, `SessaoOut`/`SessoesResponse`,
+  `MensagemOut`/`MensagensResponse`.
 
 ---
 
@@ -338,7 +363,7 @@ dados já gravados) e **Alembic junto com o schema inicial**, não depois.
 ### 2.4 `LLMProvider` com múltiplos backends e fallback automático
 
 **Decisão:** a interpretação de comandos fica atrás de uma interface de um método
-só, com quatro implementações registradas em um dicionário e fallback automático
+só, com cinco implementações registradas em um dicionário e fallback automático
 configurável por variável de ambiente.
 
 **Por quê:**
@@ -439,19 +464,20 @@ classe implementando `LLMProvider`, uma entrada em `PROVIDERS`, e as variáveis 
 
 De `docs/architecture.md` e `docs/DESIGN.md`:
 
-- **STT**: hoje no cliente (decisão de latência); o servidor nunca recebe áudio.
-- **TTS**: motor e onde roda — em aberto.
-- **Quem gera o `session_id`**: hoje o cliente (e `CommandRequest.session_id` é
-  `str` obrigatório, sem o caso nulo que o fluxo prevê). A alternativa é o
-  servidor devolver o id na primeira resposta.
-- **Janela de histórico**: quantas mensagens (contagem fixa vs. orçamento de
-  tokens) e o que fazer ao estourar o contexto (truncar vs. resumir). O limite
-  precisa caber no **menor** dos provedores — o modelo local tem contexto menor
-  que os de nuvem.
-- **Contrato de `abrir_app`**: o servidor pode rodar em outra máquina e não tem
-  acesso ao SO do Marcus; ele deve devolver a instrução e o cliente executa.
-  Falta o contrato, não a implementação. (A decisão de §3.1 torna isso mais
-  concreto, não menos.)
+- **STT**: em aberto onde roda (a intenção é no cliente, por latência); ficou
+  para a **v1.1** — hoje a entrada é por texto e o servidor nunca recebe áudio.
+- ~~**TTS**~~ → **decidido e implementado**: no cliente, via `speechSynthesis`
+  nativo (WebView2/voz do Windows no desktop), zero dependência e zero chave de
+  API; motor de voz natural fica como upgrade futuro atrás da mesma interface.
+- ~~**Quem gera o `session_id`**~~ → **decidido**: o servidor, quando o request
+  vem com `session_id` nulo (ver `docs/DATABASE.md`, "Divergências").
+- **Janela de histórico**: implementada por **contagem**
+  (`SHOGUN_HISTORICO_MAX_MENSAGENS`, default 20); segue em aberto o que fazer
+  ao estourar o contexto (truncar vs. resumir).
+- ~~**Contrato de `abrir_app`**~~ → **decidido e implementado**:
+  `ClientInstruction` em `shared/` (o servidor manda só o nome do app +
+  `fallback_text`); o desktop executa a partir de mapa curado, o mobile fica
+  para o pós-descongelamento.
 
 ---
 
@@ -459,11 +485,17 @@ De `docs/architecture.md` e `docs/DESIGN.md`:
 
 | # | Pendência | Estado | Referência |
 |---|---|---|---|
-| 1 | **Clientes `desktop/` e `mobile/`** | só READMEs — é o maior bloco em aberto | §1.3 |
-| 2 | **Escolha do modelo do Ollama** | candidatos documentados; **nenhum baixado ou testado** | `server/README.md` §"Modelos candidatos" |
-| 3 | **Streaming da resposta** | não implementado; há uma tensão de desenho a resolver antes | `docs/DESIGN.md` passo 6 |
-| 4 | **Sessão no lado do cliente** | o servidor já devolve o `session_id`; falta o cliente guardá-lo entre execuções | `docs/DESIGN.md` passo 2 |
-| 5 | **Sem CI** | a suíte só roda quando alguém lembra | — |
+| 1 | **Streaming da resposta** | não implementado; aguardando documento de design (tensão contra saída estruturada) | `docs/DESIGN.md` passo 6, §4.3 |
+| 2 | **STT** | fora da v1.0, entra na v1.1 | §3.3 |
+| 3 | **Mobile congelado** | scaffold mergeado; retomada só pós-v1.0 do desktop | §1.3 |
+| 4 | **`MaestriProvider`** | stub — a API do Maestri ainda não existe | §4.5 |
+| 5 | **Desktop importar os tipos de leitura de `shared/ts`** | os GETs ainda usam cópia local em `types.ts` | §1.3 |
+
+Resolvidas desde a versão anterior desta tabela: clientes deixaram de ser "só
+READMEs" (§1.3), a sessão é persistida no cliente, o CI existe
+(`.github/workflows/tests.yml`, Python 3.11 e 3.13) e o modelo local roda no
+Ollama com aquecimento no startup (`OLLAMA_MODEL` é escolha de quem opera —
+candidatos em `server/README.md`).
 
 ### 4.1 Achados de review ainda em aberto
 
@@ -477,18 +509,19 @@ O PR #3 foi mergeado; o que sobrou dele é a lista do review de contrato
   conectada** — a rota hoje distingue os dois casos;
 - ⬜ **`str(exc)` vazando detalhe de implementação para o cliente** na falha do
   provedor de pendências;
-- ⬜ **`ShogunOrquestradorProvider` não é thread-safe** enquanto a rota o chama
-  em threadpool. Hoje é estado em memória; some quando ele ganhar o repositório
-  de verdade (§2.3 agora tem banco para apoiá-lo).
+- ✅ **`ShogunOrquestradorProvider` não é thread-safe** — resolvido com o
+  provider persistente (PRs #27/#29): a injeção default cria um provider por
+  request sobre a sessão de banco do request; o estado compartilhado agora vive
+  no SQLite, que serializa escritas.
 
 ### 4.2 Modelo do Ollama
 
-O Ollama **v0.33.3 está instalado** na máquina e serve em `localhost:11434`, mas
-**nenhum modelo foi baixado** (`ollama pull` pendente) e o `OllamaProvider`
-**nunca foi exercitado contra um Ollama real** — só contra fakes nos testes. Vale
-um smoke test manual antes do merge.
+O Ollama roda em `localhost:11434` e o fluxo com modelo local está em uso real
+(o aquecimento no startup, PR #23, nasceu do teste manual do Marcus com o
+modelo carregando frio). Qual modelo está no `.env` é escolha de quem opera —
+o repositório não fixa um.
 
-Com `OLLAMA_MODEL` agora obrigatória, o servidor **não sobe** com o provedor
+Com `OLLAMA_MODEL` obrigatória, o servidor **não sobe** com o provedor
 `ollama` selecionado enquanto a variável não estiver no `.env`.
 
 Candidatos comparados em `server/README.md` (VRAM em Q4_K_M, sem contar contexto
@@ -514,8 +547,10 @@ do JSON parcial, ou (b) duas chamadas, uma que decide a ação e outra que gera 
 fala em texto puro. (b) dobra o custo por comando; (a) é mais frágil com modelo
 local. Consequência: o que se streama é a **fala**, não as `actions` — elas só
 existem depois da interpretação completa. E o transporte precisa entregar em
-fronteiras faláveis (frase/oração), senão o TTS corta no meio das palavras.
-SSE ou WebSocket ainda em aberto.
+fronteiras faláveis (frase/oração), senão o TTS corta no meio das palavras —
+ponto que ficou concreto agora que o desktop fala as respostas.
+SSE ou WebSocket ainda em aberto; a implementação aguarda o documento de
+design do backend.
 
 ### 4.4 Histórico de conversa — implementado (versão concatenada)
 
@@ -523,7 +558,7 @@ Feito no PR #6. A rota lê as últimas `SHOGUN_HISTORICO_MAX_MENSAGENS` (default
 20) mensagens da sessão e as concatena ao prompt como bloco de contexto.
 
 **A interface `LLMProvider` não mudou.** `interpretar_comando(texto)` continua
-recebendo uma string: trocar a assinatura atinge os quatro provedores de uma vez,
+recebendo uma string: trocar a assinatura atinge os cinco provedores de uma vez,
 e ainda não se sabe se a concatenação é boa o bastante para justificar isso. Os
 critérios para migrar para uma lista de mensagens estão no passo 4 do
 `docs/DESIGN.md` — em resumo, o modelo confundir quem falou o quê, responder ao
@@ -548,8 +583,10 @@ Duas ordens deliberadas na rota, que valem lembrar antes de mexer nela:
 - **WebSocket**: previsto na arquitetura e nos READMEs dos clientes; o servidor
   só tem HTTP.
 - **`MaestriProvider`** é stub — a API do Maestri ainda não existe.
-- **Nenhum produtor de pendências no processo**: `ShogunOrquestradorProvider` é
-  em memória e nada chama `registrar_pendencia`.
+- **Nenhum produtor de pendências no processo**: o
+  `ShogunOrquestradorProvider` agora persiste no banco, mas nada no servidor
+  chama `registrar_pendencia` — as tabelas `agentes`/`pendencias` só ganham
+  linha por escrita externa/manual até existir um orquestrador de verdade.
 
 ---
 

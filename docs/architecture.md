@@ -36,6 +36,8 @@ servidor.
 | [DESIGN.md](DESIGN.md) | O caminho completo de uma mensagem, passo a passo, marcando o que já existe e o que falta |
 | [DATABASE.md](DATABASE.md) | Schema de sessões e histórico em SQLite/SQLAlchemy, e os critérios para migrar a Postgres |
 | [AGENTS.md](AGENTS.md) | O papel de `server/app/agents/` e a distinção entre agentes do Shogun e agentes do Maestri |
+| [ROADMAP.md](ROADMAP.md) | Planejamento por fases: v1.0 do desktop, backlog do mobile, ideias futuras |
+| [CONTEXTO-GERAL.md](CONTEXTO-GERAL.md) | Ponto único de entrada para recuperar o contexto do projeto numa sessão nova |
 
 Fora de `docs/`: [`server/README.md`](../server/README.md) tem a configuração dos
 provedores de LLM e como rodar o modelo local com Ollama.
@@ -51,15 +53,25 @@ provedores de LLM e como rodar o modelo local com Ollama.
 
 ## Decisões em aberto
 
-- Onde roda o STT: hoje no cliente (menor latência, mais peso no app); a
-  alternativa é no servidor (clientes mais simples, mais tráfego).
-- Motor de TTS e se a voz é sintetizada no cliente ou no servidor.
-- Contrato de `abrir_app` entre servidor e cliente — o servidor não tem acesso ao
-  SO do Marcus. Ver [AGENTS.md](AGENTS.md).
+- Onde roda o STT: a intenção é no cliente (menor latência, mais peso no app);
+  a alternativa é no servidor (clientes mais simples, mais tráfego). STT ficou
+  para a v1.1 — hoje a entrada é por texto.
 - Formato da memória de longo prazo, além do histórico bruto de mensagens — é
   um dos gatilhos de migração para Postgres em [DATABASE.md](DATABASE.md).
 - Streaming da resposta: SSE ou WebSocket, e como conciliar com a saída
-  estruturada dos provedores. Ver [DESIGN.md](DESIGN.md).
+  estruturada dos provedores. Ver [DESIGN.md](DESIGN.md) — aguardando documento
+  de design antes de implementar.
 
-Já decididos: autenticação por Bearer token fixo (`SHOGUN_AUTH_TOKEN`);
-persistência em SQLite via SQLAlchemy ([DATABASE.md](DATABASE.md)).
+Já decididos:
+
+- autenticação por Bearer token fixo (`SHOGUN_AUTH_TOKEN`), com rate limit por
+  token (429 + `Retry-After`);
+- persistência em SQLite via SQLAlchemy ([DATABASE.md](DATABASE.md));
+- **TTS no cliente**: o desktop sintetiza com o `speechSynthesis` nativo do
+  WebView2 (voz do próprio Windows, zero dependência e zero chave de API);
+  motor de voz natural fica como upgrade futuro atrás da mesma interface
+  (`desktop/src/lib/voz.ts`);
+- **contrato de `abrir_app`**: o servidor delega via `ClientInstruction`
+  (`shared/`) mandando só o nome do app; o cliente executa a partir de uma
+  lista curada e responde com `fallback_text` quando não suporta. O desktop já
+  executa; no mobile fica para o pós-descongelamento.
