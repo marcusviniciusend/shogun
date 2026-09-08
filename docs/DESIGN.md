@@ -195,6 +195,9 @@ SSE ou WebSocket: a arquitetura já prevê WebSocket para a conversa em tempo re
 e ele serve os dois sentidos; SSE é mais simples se o fluxo for só servidor →
 cliente.
 
+A tensão está analisada em [streaming-design.md](streaming-design.md) — opções,
+medições de latência do uso real e recomendação, aguardando decisão.
+
 ## 7. TTS no cliente — 🔴 Novo
 
 O cliente sintetiza a voz conforme os tokens chegam, ou espera a resposta
