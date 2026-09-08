@@ -67,6 +67,15 @@ class Settings(BaseSettings):
     # Vazio = autenticação desligada (apenas para desenvolvimento local).
     shogun_auth_token: str = ""
 
+    # --- Rate limit --------------------------------------------------------
+    # Chamadas por minuto, por token autenticado, em janela deslizante de 60s.
+    # Protecao de custo: o /comando aciona LLM pago, entao o limite dele e
+    # apertado; as rotas de leitura so tocam o banco local e ganham um teto
+    # frouxo, longe do polling de 30s do painel do desktop. 0 desliga o balde.
+    # Contador em memoria — vale para instancia unica (ver core/rate_limit.py).
+    shogun_rate_limit_comando_por_minuto: int = 20
+    shogun_rate_limit_leitura_por_minuto: int = 120
+
     # --- Servidor ----------------------------------------------------------
     # `0.0.0.0` escuta em todas as interfaces — necessario para os clientes
     # remotos (mobile via Tailscale) alcancarem o servidor. Para restringir a

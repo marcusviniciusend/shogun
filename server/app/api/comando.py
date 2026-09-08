@@ -22,6 +22,7 @@ from app.core.llm import (
 from app.core.llm.historico import montar_prompt
 from app.core.persistencia import RepositorioConversas, get_repositorio
 from app.core.pendencias import PendenciasProvider, get_pendencias_provider
+from app.core.rate_limit import limitar_comando
 from app.core.security import require_auth
 from app.domain import Pendencia, StatusAgente
 
@@ -71,7 +72,12 @@ def _fechar_conversa(
         repo.marcar_atividade(sessao)
 
 
-router = APIRouter(tags=["comando"], dependencies=[Depends(require_auth)])
+router = APIRouter(
+    tags=["comando"],
+    # Ordem importa: autenticacao primeiro — token invalido vira 401 sem
+    # consumir cota do rate limit.
+    dependencies=[Depends(require_auth), Depends(limitar_comando)],
+)
 
 
 # Estados que merecem destaque na fala: são pendências que estão travando algo.

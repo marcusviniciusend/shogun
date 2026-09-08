@@ -31,6 +31,20 @@ from app.domain import Pendencia, PendenciasProvider, StatusAgente  # noqa: E402
 TOKEN = "token-de-teste"
 
 
+@pytest.fixture(autouse=True)
+def _rate_limit_limpo():
+    """Cada teste comeca com os baldes zerados.
+
+    O estado do rate limit e global do processo e os testes compartilham o
+    mesmo token — sem o reset, a suite inteira dividiria um balde de 60s e
+    testes sem relacao nenhuma comecariam a responder 429.
+    """
+    from app.core.rate_limit import redefinir
+
+    redefinir()
+    yield
+
+
 class LLMFake:
     """Provedor controlável: devolve `resposta` ou levanta `erro`."""
 

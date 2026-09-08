@@ -160,6 +160,26 @@ app/
 
 ## API
 
+### Rate limit
+
+Todas as rotas autenticadas têm limite de chamadas **por token**, em janela
+deslizante de 60s — proteção de custo: o servidor fica exposto via Tailscale e
+o `/comando` aciona LLM pago, então um cliente com bug em loop não pode
+martelar o modelo. Dois baldes:
+
+| Balde | Rotas | Variável | Default |
+| --- | --- | --- | --- |
+| comando | `POST /comando` | `SHOGUN_RATE_LIMIT_COMANDO_POR_MINUTO` | 20/min |
+| leitura | `GET /pendencias`, `/sessoes`, `/consumo` | `SHOGUN_RATE_LIMIT_LEITURA_POR_MINUTO` | 120/min |
+
+A leitura é frouxa de propósito: só toca o banco local, e o polling de 30s do
+painel do desktop (2/min por endpoint) fica longe do teto. Zero desliga o
+balde. Estourar responde `429` com header `Retry-After` (segundos) e mensagem
+com o limite; token inválido vira `401` **sem** consumir cota. O contador vive
+em memória do processo — vale para o servidor de instância única de hoje;
+múltiplas instâncias exigiriam armazenamento compartilhado (documentado em
+`app/core/rate_limit.py`).
+
 ### `POST /comando`
 
 Recebe o texto **já transcrito** pelo cliente e devolve a resposta falada mais as
@@ -200,13 +220,13 @@ curl -H "Authorization: Bearer $SHOGUN_AUTH_TOKEN" \
   "fim": null,
   "total_input_tokens": 3000000,
   "total_output_tokens": 600000,
-  "custo_real_usd": 4.5,
+  "custo_real_usd": 7.5,
   "por_provider": [
     { "provider": "claude", "mensagens": 1, "input_tokens": 1000000,
-      "output_tokens": 100000, "custo_usd": 4.5 }
+      "output_tokens": 100000, "custo_usd": 7.5 }
   ],
   "comparativo": [
-    { "provider": "claude", "custo_usd": 18.0 },
+    { "provider": "claude", "custo_usd": 30.0 },
     { "provider": "deepseek", "custo_usd": 1.092 },
     { "provider": "ollama", "custo_usd": 0.0 },
     { "provider": "openai_mini", "custo_usd": 0.81 }

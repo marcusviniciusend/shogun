@@ -49,8 +49,8 @@ def test_tabela_cobre_os_quatro_provedores():
 
 
 def test_custo_claude_em_volume_redondo():
-    # 1M de input a US$ 3 + 1M de output a US$ 15.
-    assert custo_usd("claude", 1_000_000, 1_000_000) == pytest.approx(18.0)
+    # 1M de input a US$ 5 + 1M de output a US$ 25 (Opus, o modelo default).
+    assert custo_usd("claude", 1_000_000, 1_000_000) == pytest.approx(30.0)
 
 
 def test_custo_proporcional_ao_volume():
@@ -275,17 +275,17 @@ def test_consumo_calcula_custo_real_e_comparativo(client, auth, db, repo):
     assert dados["total_input_tokens"] == 3_000_000
     assert dados["total_output_tokens"] == 600_000
 
-    # Custo real: claude 1M*3 + 0.1M*15 = 4.5; ollama = 0.
-    assert dados["custo_real_usd"] == pytest.approx(4.5)
+    # Custo real: claude (Opus) 1M*5 + 0.1M*25 = 7.5; ollama = 0.
+    assert dados["custo_real_usd"] == pytest.approx(7.5)
 
     por_provider = {p["provider"]: p for p in dados["por_provider"]}
-    assert por_provider["claude"]["custo_usd"] == pytest.approx(4.5)
+    assert por_provider["claude"]["custo_usd"] == pytest.approx(7.5)
     assert por_provider["claude"]["mensagens"] == 1
     assert por_provider["ollama"]["custo_usd"] == 0.0
 
     # Comparativo aplica o volume TOTAL (3M in, 0.6M out) a cada tabela:
     comparativo = {c["provider"]: c["custo_usd"] for c in dados["comparativo"]}
-    assert comparativo["claude"] == pytest.approx(3 * 3.0 + 0.6 * 15.0)
+    assert comparativo["claude"] == pytest.approx(3 * 5.0 + 0.6 * 25.0)
     assert comparativo["deepseek"] == pytest.approx(3 * 0.28 + 0.6 * 0.42)
     assert comparativo["openai_mini"] == pytest.approx(3 * 0.15 + 0.6 * 0.60)
     assert comparativo["ollama"] == 0.0
