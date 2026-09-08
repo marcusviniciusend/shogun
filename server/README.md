@@ -257,9 +257,12 @@ nas duas pontas.
 
 O contrato `PendenciasProvider` (com `Pendencia` e `StatusAgente`) vive em
 `app/domain/`. `app/core/pendencias.py` é apenas o ponto de injeção do FastAPI:
-`get_pendencias_provider` devolve a implementação padrão
-(`ShogunOrquestradorProvider`). Trocar para `MaestriProvider` quando a API existir
-é mudar uma linha — nenhuma rota precisa mudar.
+`get_pendencias_provider` devolve a implementação padrão —
+`ShogunOrquestradorProvider` apoiado no banco (`RepositorioPendencias` sobre a
+sessão do request, um provider por request). O banco é exigido como no resto do
+servidor; o modo em memória do provider existe como construção explícita (útil
+em teste), não como fallback silencioso. Trocar para `MaestriProvider` quando a
+API existir é mudar uma linha — nenhuma rota precisa mudar.
 
 Em testes, sobrescreva com `app.dependency_overrides[get_pendencias_provider]`;
 o mesmo vale para `get_llm_provider` e `get_settings`.
