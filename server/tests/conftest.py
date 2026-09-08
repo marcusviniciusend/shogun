@@ -16,6 +16,12 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 # antes do import de app.core.config.
 os.environ.setdefault("SHOGUN_HOST", "127.0.0.1")
 
+# A checagem de migracao do lifespan olha o engine global (o arquivo real do
+# .env), que os testes nem tocam — o banco deles e em memoria, criado por
+# criar_tabelas(). Desligada aqui; a checagem em si tem testes proprios em
+# test_migracao.py.
+os.environ.setdefault("SHOGUN_CHECAR_MIGRACOES", "0")
+
 from app.core.config import Settings  # noqa: E402
 from app.core.llm import ComandoInterpretado, LLMIndisponivelError  # noqa: E402
 from app.db import Base, RepositorioConversas, criar_engine  # noqa: E402
