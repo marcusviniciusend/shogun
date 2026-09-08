@@ -8,7 +8,13 @@
 import { fetch } from "@tauri-apps/plugin-http";
 
 import type { Config } from "./config";
-import type { CommandRequestWire, CommandResponseWire } from "./types";
+import type {
+  CommandRequestWire,
+  CommandResponseWire,
+  MensagensResponseWire,
+  PendenciasResponseWire,
+  SessoesResponseWire,
+} from "./types";
 
 /**
  * Categoria da falha — e o que permite a UI decidir a reacao sem fazer
@@ -226,4 +232,111 @@ export async function enviarComando(
       e,
     );
   }
+}
+
+/**
+ * Limite dos GETs de leitura (/sessoes, /pendencias): sao consultas de banco,
+ * sem LLM — se demorou mais que isso, o problema e de conexao, nao de carga.
+ */
+const TIMEOUT_LEITURA_MS = 8_000;
+
+/**
+ * GET autenticado com timeout e a MESMA classificacao de erro do /comando:
+ * as rotas de leitura compartilham o funil de conexao/auth da UI.
+ *
+ * `recurso` e o nome amigavel usado nas mensagens (ex.: "as conversas").
+ */
+async function getAutenticado<T>(
+  config: Config,
+  caminho: string,
+  recurso: string,
+): Promise<T> {
+  const headers: Record<string, string> = {};
+  if (config.token) {
+    headers.Authorization = `Bearer ${config.token}`;
+  }
+
+  const cancelar = new AbortController();
+  const limite = setTimeout(() => cancelar.abort(), TIMEOUT_LEITURA_MS);
+
+  let resposta: Response;
+  try {
+    resposta = await fetch(`${config.serverUrl}${caminho}`, {
+      method: "GET",
+      headers,
+      signal: cancelar.signal,
+    });
+  } catch (e) {
+    console.error(`[shogun] GET ${caminho} falhou:`, e);
+    if (cancelar.signal.aborted) {
+      throw new ErroComando(
+        `O servidor nao respondeu ${caminho} em ` +
+          `${TIMEOUT_LEITURA_MS / 1000} segundos.`,
+        "timeout",
+        e,
+      );
+    }
+    throw new ErroComando(traduzirFalhaDeRede(e, config.serverUrl), "rede", e);
+  } finally {
+    clearTimeout(limite);
+  }
+
+  if (resposta.status === 401 || resposta.status === 403) {
+    throw new ErroComando(
+      config.token
+        ? `O servidor recusou o token (HTTP ${resposta.status}). ` +
+          "Confira o token nas configuracoes."
+        : "O servidor exige autenticacao e nenhum token esta configurado.",
+      "auth",
+    );
+  }
+  if (resposta.status === 404) {
+    // Rota inexistente: servidor de versao anterior ao contrato desta tela.
+    throw new ErroComando(
+      `O servidor nao conhece ${caminho} — atualize o servidor para ` +
+        `carregar ${recurso}.`,
+      "http",
+    );
+  }
+  if (!resposta.ok) {
+    throw new ErroComando(
+      `O servidor devolveu HTTP ${resposta.status} ao carregar ${recurso}.`,
+      "http",
+    );
+  }
+
+  try {
+    return (await resposta.json()) as T;
+  } catch (e) {
+    console.error(`[shogun] GET ${caminho}: resposta fora do formato:`, e);
+    throw new ErroComando(
+      `O servidor devolveu ${recurso} fora do formato esperado.`,
+      "formato",
+      e,
+    );
+  }
+}
+
+/** GET /sessoes — conversas existentes, para a lista de historico. */
+export function listarSessoes(config: Config): Promise<SessoesResponseWire> {
+  return getAutenticado(config, "/sessoes", "as conversas");
+}
+
+/** GET /sessoes/{id}/mensagens — historico completo de uma conversa. */
+export function carregarMensagens(
+  config: Config,
+  sessionId: string,
+): Promise<MensagensResponseWire> {
+  return getAutenticado(
+    config,
+    `/sessoes/${encodeURIComponent(sessionId)}/mensagens`,
+    "a conversa",
+  );
+}
+
+/** GET /pendencias — leitura direta, sem gastar uma chamada de LLM. */
+export function buscarPendencias(
+  config: Config,
+): Promise<PendenciasResponseWire> {
+  return getAutenticado(config, "/pendencias", "as pendencias");
 }
