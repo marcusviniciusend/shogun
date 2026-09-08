@@ -1,9 +1,10 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import indicadorSumi from "./assets/indicador-sumi.webm";
 import indicadorWashi from "./assets/indicador-washi.webm";
 import { Chat } from "./components/Chat";
 import { Configuracoes } from "./components/Configuracoes";
+import { Conversas } from "./components/Conversas";
 import { PainelAgentes } from "./components/PainelAgentes";
 import { Sidebar, type View } from "./components/Sidebar";
 import { Splash } from "./components/Splash";
@@ -12,9 +13,12 @@ import {
   type EstadoServidor,
 } from "./components/StatusServidor";
 import {
+  buscarPendencias,
+  carregarMensagens,
   ehErroDeConexao,
   enviarComando,
   ErroComando,
+  listarSessoes,
   verificarSaude,
 } from "./lib/api";
 import { executarInstrucoes } from "./lib/instrucoes";
@@ -29,11 +33,20 @@ import {
   type Config,
   type Tema,
 } from "./lib/config";
-import type { AgentActionWire, MensagemChat } from "./lib/types";
+import type {
+  MensagemChat,
+  PendenciaWire,
+  SessaoResumoWire,
+} from "./lib/types";
 
 import "./App.css";
 
-const COMANDO_PENDENCIAS = "ver pendências dos agentes";
+/**
+ * Cadencia do refresh automatico do painel de Agentes. So existe porque o
+ * GET /pendencias e leitura direta de banco — quando o painel dependia do
+ * POST /comando, cada tick custaria uma chamada de LLM.
+ */
+const REFRESH_AGENTES_MS = 30_000;
 
 const REDUZ_MOVIMENTO = window.matchMedia(
   "(prefers-reduced-motion: reduce)",
@@ -77,10 +90,20 @@ export default function App({ temaInicial }: Props) {
   const [mensagens, setMensagens] = useState<MensagemChat[]>([]);
   const [chatCarregando, setChatCarregando] = useState(false);
 
-  const [acoesAgentes, setAcoesAgentes] = useState<AgentActionWire[]>([]);
-  const [resumoAgentes, setResumoAgentes] = useState<string | null>(null);
+  const [pendencias, setPendencias] = useState<PendenciaWire[]>([]);
+  const [totalPendencias, setTotalPendencias] = useState(0);
   const [erroAgentes, setErroAgentes] = useState<string | null>(null);
   const [agentesCarregando, setAgentesCarregando] = useState(false);
+  const [agentesAtualizadoEm, setAgentesAtualizadoEm] = useState<Date | null>(
+    null,
+  );
+  // Guarda contra sobreposicao tick automatico x clique manual — ref, e nao
+  // estado, porque o intervalo le o valor da hora, nao o do render.
+  const consultandoAgentesRef = useRef(false);
+
+  const [sessoes, setSessoes] = useState<SessaoResumoWire[]>([]);
+  const [sessoesErro, setSessoesErro] = useState<string | null>(null);
+  const [sessoesCarregando, setSessoesCarregando] = useState(false);
 
   const [estadoServidor, setEstadoServidor] =
     useState<EstadoServidor>("verificando");
@@ -187,11 +210,6 @@ export default function App({ temaInicial }: Props) {
       // mostra o text do servidor, falha mostra o fallback_text — nunca os dois.
       const textoFinal = await executarInstrucoes(resposta);
       setMensagens((m) => [...m, { autor: "shogun", texto: textoFinal }]);
-      // Se o comando digitado tambem consultou pendencias, aproveita no painel.
-      if (resposta.actions.length > 0) {
-        setAcoesAgentes(resposta.actions);
-        setErroAgentes(null);
-      }
     } catch (e) {
       setMensagens((m) => [
         ...m,
@@ -217,25 +235,90 @@ export default function App({ temaInicial }: Props) {
     await processarComando(texto);
   }
 
+  /**
+   * Recarrega o painel via GET /pendencias — leitura direta, sem LLM e sem
+   * mexer na sessao de conversa. Sem pre-checagem de /health: a propria
+   * chamada e igualmente barata, e uma falha de conexao ja cai no funil do
+   * banner via `registrarFalha` (o que tambem pausa o refresh automatico).
+   */
   async function atualizarAgentes() {
+    if (consultandoAgentesRef.current) return;
+    consultandoAgentesRef.current = true;
     setAgentesCarregando(true);
     setErroAgentes(null);
-    if (!(await checarSaude(config))) {
-      setErroAgentes(mensagemServidorFora());
-      setAgentesCarregando(false);
-      return;
-    }
     try {
-      const resposta = await chamarComReenvio(COMANDO_PENDENCIAS);
-      await atualizarSessao(resposta.session_id);
-      setAcoesAgentes(resposta.actions);
-      // Mesma regra do chat: se vier instrucao, o texto exibido depende do
-      // resultado da execucao.
-      setResumoAgentes(await executarInstrucoes(resposta));
+      const resposta = await buscarPendencias(config);
+      setPendencias(resposta.pendencias);
+      setTotalPendencias(resposta.total);
+      setAgentesAtualizadoEm(new Date());
     } catch (e) {
       setErroAgentes(registrarFalha(e));
     } finally {
+      consultandoAgentesRef.current = false;
       setAgentesCarregando(false);
+    }
+  }
+
+  // Refresh automatico do painel: so com a conexao saudavel — banner ativo
+  // (ou /health ainda verificando) derruba o intervalo, e ele volta sozinho
+  // quando o estado retorna a "ok". O tick inicial tambem povoa o painel na
+  // abertura do app, sem clique.
+  useEffect(() => {
+    if (estadoServidor !== "ok") return;
+    void atualizarAgentes();
+    const timer = setInterval(
+      () => void atualizarAgentes(),
+      REFRESH_AGENTES_MS,
+    );
+    return () => clearInterval(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [estadoServidor, config]);
+
+  /** Recarrega a lista de conversas (GET /sessoes), mais recentes primeiro. */
+  async function carregarSessoes() {
+    setSessoesCarregando(true);
+    setSessoesErro(null);
+    try {
+      const resposta = await listarSessoes(config);
+      setSessoes(
+        [...resposta.sessoes].sort((a, b) =>
+          b.atualizada_em.localeCompare(a.atualizada_em),
+        ),
+      );
+    } catch (e) {
+      setSessoesErro(registrarFalha(e));
+    } finally {
+      setSessoesCarregando(false);
+    }
+  }
+
+  // Entrar na tela de conversas ja carrega a lista — o botao Atualizar fica
+  // para quem deixou a tela aberta.
+  useEffect(() => {
+    if (view === "conversas") void carregarSessoes();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [view]);
+
+  /**
+   * Abre uma conversa antiga: carrega o historico, troca a sessao ativa (e a
+   * persistida) e volta para o chat — a proxima mensagem continua AQUELA
+   * conversa.
+   */
+  async function abrirConversa(id: string) {
+    setSessoesCarregando(true);
+    setSessoesErro(null);
+    try {
+      const resposta = await carregarMensagens(config, id);
+      setMensagens(
+        resposta.mensagens.map((m) => ({ autor: m.autor, texto: m.texto })),
+      );
+      setSessionId(resposta.session_id);
+      await salvarSessionId(resposta.session_id);
+      setView("chat");
+    } catch (e) {
+      setSessoesErro(registrarFalha(e));
+    } finally {
+      setSessoesCarregando(false);
     }
   }
 
@@ -253,8 +336,11 @@ export default function App({ temaInicial }: Props) {
     await checarSaude(nova);
   }
 
-  const mostraChat = view === "chat" || (dividido && view !== "config");
-  const mostraAgentes = view === "agentes" || (dividido && view !== "config");
+  // O dividido so junta chat + agentes; conversas e uma tela propria.
+  const emDashboard = view === "chat" || view === "agentes";
+  const mostraChat = view === "chat" || (dividido && emDashboard);
+  const mostraAgentes = view === "agentes" || (dividido && emDashboard);
+  const mostraConversas = view === "conversas";
 
   return (
     <div className="app">
@@ -271,7 +357,8 @@ export default function App({ temaInicial }: Props) {
         }}
         onAlternarDividido={() => {
           setDividido((d) => !d);
-          if (view === "config") setView("chat");
+          // Dividido e sempre chat + agentes: vindo de outra tela, aterra no chat.
+          if (view === "config" || view === "conversas") setView("chat");
         }}
       />
       <header className="app-cabecalho">
@@ -313,6 +400,16 @@ export default function App({ temaInicial }: Props) {
         />
       ) : (
         <main className={`dashboard${dividido ? " dividido" : ""}`}>
+          {mostraConversas && (
+            <Conversas
+              sessoes={sessoes}
+              sessionIdAtual={sessionId}
+              erro={sessoesErro}
+              carregando={sessoesCarregando}
+              onAtualizar={() => void carregarSessoes()}
+              onAbrir={(id) => void abrirConversa(id)}
+            />
+          )}
           {mostraChat && (
             <Chat
               mensagens={mensagens}
@@ -324,11 +421,12 @@ export default function App({ temaInicial }: Props) {
           )}
           {mostraAgentes && (
             <PainelAgentes
-              acoes={acoesAgentes}
-              resumo={resumoAgentes}
+              pendencias={pendencias}
+              total={totalPendencias}
               erro={erroAgentes}
               carregando={agentesCarregando}
-              onAtualizar={atualizarAgentes}
+              atualizadoEm={agentesAtualizadoEm}
+              onAtualizar={() => void atualizarAgentes()}
             />
           )}
         </main>

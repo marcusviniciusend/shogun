@@ -634,6 +634,68 @@ body {
   max-width: 40ch;
 }
 
+/* Complemento discreto na linha da pendencia (status em texto). */
+.agente-detalhe {
+  color: var(--hai);
+}
+
+/* --------------------------------------------------------------- conversas */
+
+.conversas-vazio {
+  color: var(--hai);
+  font-size: 0.9rem;
+  max-width: 44ch;
+}
+
+.conversas-lista {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+/*
+ * Cada conversa e uma linha inteira clicavel, separada por fio suave — a
+ * mesma linguagem de lista do painel de agentes, sem cartao nem sombra.
+ */
+.conversa-item {
+  width: 100%;
+  text-align: left;
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  padding: 0.75rem 0.25rem;
+  border-bottom: 1px solid var(--linha-suave);
+}
+
+.conversa-item:hover .conversa-titulo {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+/* A conversa aberta no chat agora: fio de tinta a esquerda, sem bengara. */
+.conversa-item.atual {
+  border-left: 2px solid var(--tinta);
+  padding-left: 0.6rem;
+}
+
+.conversa-titulo {
+  font-family: var(--serif);
+  font-size: 0.98rem;
+  color: var(--tinta);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 60ch;
+}
+
+.conversa-meta {
+  font-size: 0.75rem;
+  color: var(--hai);
+  letter-spacing: 0.04em;
+}
+
 /* ------------------------------------------------------------- configuracoes */
 
 .configuracoes {

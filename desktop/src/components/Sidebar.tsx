@@ -1,4 +1,4 @@
-export type View = "chat" | "agentes" | "config";
+export type View = "chat" | "conversas" | "agentes" | "config";
 
 interface Props {
   view: View;
@@ -25,8 +25,12 @@ export function Sidebar({
   onVer,
   onAlternarDividido,
 }: Props) {
+  // O modo dividido so junta chat + agentes; conversas e config ficam fora.
   const ativa = (v: View) =>
-    view === v || (dividido && view !== "config" && v !== "config");
+    view === v ||
+    (dividido &&
+      (v === "chat" || v === "agentes") &&
+      (view === "chat" || view === "agentes"));
 
   return (
     <nav className="sidebar" aria-label="Navegação">
@@ -54,6 +58,19 @@ export function Sidebar({
           <path d="M3.5 5.5h13v8h-7l-3.5 3v-3h-2.5z" />
         </svg>
         <span>Conversa</span>
+      </button>
+
+      <button
+        type="button"
+        className={`sidebar-item${ativa("conversas") ? " ativa" : ""}`}
+        onClick={() => onVer("conversas")}
+        title="Conversas anteriores"
+      >
+        <svg viewBox="0 0 20 20" aria-hidden>
+          <path d="M4 5h12M4 9h12M4 13h8" />
+          <path d="M4 17h5" />
+        </svg>
+        <span>Conversas</span>
       </button>
 
       <button
