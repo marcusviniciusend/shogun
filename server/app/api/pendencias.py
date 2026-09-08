@@ -8,18 +8,18 @@ custo e latencia de modelo) para obter dados que o servidor ja tem na mao.
 A rota depende da interface `PendenciasProvider`, nunca de implementacao
 concreta — a troca acontece na injecao de dependencia, como no /comando.
 
-O shape da resposta reaproveita os modelos de dominio (`Pendencia`, com
-`StatusAgente` dentro): a serializacao e direta, sem conversao manual. O
-contrato e so do servidor por enquanto (como o /consumo); quando um cliente
-tipado consumir, promove-se o modelo para `shared/` nas duas pontas.
+O contrato da resposta vive em `shared/` (promovido quando o desktop passou a
+consumir tipado): `PendenciaOut` e o espelho de fio do modelo de dominio
+`Pendencia` — a conversao explicita aqui e o unico ponto onde os dois se
+encontram.
 """
 
 import logging
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from pydantic import BaseModel
 from starlette.concurrency import run_in_threadpool
 
+from app.core.contracts import PendenciaOut, PendenciasResponse
 from app.core.pendencias import PendenciasProvider, get_pendencias_provider
 from app.core.security import require_auth
 from app.domain import Pendencia
@@ -29,11 +29,15 @@ logger = logging.getLogger(__name__)
 router = APIRouter(tags=["pendencias"], dependencies=[Depends(require_auth)])
 
 
-class PendenciasResponse(BaseModel):
-    """Pendencias abertas, das mais urgentes para as menos."""
-
-    total: int
-    pendencias: list[Pendencia]
+def _como_pendencia_out(pendencia: Pendencia) -> PendenciaOut:
+    return PendenciaOut(
+        agente_id=pendencia.agente_id,
+        agente_nome=pendencia.agente_nome,
+        status=pendencia.status.value,
+        descricao=pendencia.descricao,
+        timestamp=pendencia.timestamp,
+        prioridade=pendencia.prioridade,
+    )
 
 
 @router.get("/pendencias", response_model=PendenciasResponse)
@@ -60,4 +64,7 @@ async def listar_pendencias(
         ) from exc
 
     pendencias.sort(key=lambda p: (-p.prioridade, p.timestamp))
-    return PendenciasResponse(total=len(pendencias), pendencias=pendencias)
+    return PendenciasResponse(
+        total=len(pendencias),
+        pendencias=[_como_pendencia_out(p) for p in pendencias],
+    )
