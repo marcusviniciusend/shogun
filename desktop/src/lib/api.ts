@@ -25,6 +25,9 @@ import type {
  * - `llm_indisponivel`: 503 — o servidor esta de pe, so o modelo nao. E o
  *   unico caso com reenvio automatico (modelo frio costuma responder na
  *   segunda tentativa).
+ * - `rate_limit`: 429 — o servidor esta protegendo a si mesmo. NUNCA ganha
+ *   reenvio automatico (reenviar e exatamente o que o limite pune); carrega o
+ *   Retry-After para a UI saber quanto esperar.
  * - `auth`, `http`, `formato`: erros especificos, mostrados onde ocorreram e
  *   NUNCA reenviados sozinhos — reenviar um 401 seria martelar a porta errada.
  */
@@ -33,6 +36,7 @@ export type TipoErro =
   | "timeout"
   | "auth"
   | "llm_indisponivel"
+  | "rate_limit"
   | "http"
   | "formato";
 
@@ -41,13 +45,51 @@ export class ErroComando extends Error {
   readonly tipo: TipoErro;
   /** Causa crua, para log e diagnostico. Nao e mostrada ao usuario. */
   readonly causa?: unknown;
+  /** So em `rate_limit`: segundos do Retry-After, quando o servidor mandou. */
+  readonly retryAfterSegundos?: number;
 
-  constructor(mensagem: string, tipo: TipoErro, causa?: unknown) {
+  constructor(
+    mensagem: string,
+    tipo: TipoErro,
+    causa?: unknown,
+    retryAfterSegundos?: number,
+  ) {
     super(mensagem);
     this.name = "ErroComando";
     this.tipo = tipo;
     this.causa = causa;
+    this.retryAfterSegundos = retryAfterSegundos;
   }
+}
+
+/**
+ * Segundos do header Retry-After de um 429. Aceita os dois formatos do RFC
+ * (delta em segundos e HTTP-date); ausente ou ilegivel devolve `null`.
+ */
+function segundosDeRetryAfter(resposta: Response): number | null {
+  const bruto = resposta.headers.get("retry-after");
+  if (!bruto) return null;
+  const delta = Number(bruto);
+  if (Number.isFinite(delta) && delta >= 0) return Math.ceil(delta);
+  const data = new Date(bruto);
+  if (!Number.isNaN(data.getTime())) {
+    return Math.max(0, Math.ceil((data.getTime() - Date.now()) / 1000));
+  }
+  return null;
+}
+
+/** Monta o ErroComando de um 429, com o tempo de espera quando conhecido. */
+function erroDeRateLimit(resposta: Response): ErroComando {
+  const segundos = segundosDeRetryAfter(resposta);
+  return new ErroComando(
+    segundos !== null
+      ? `Muitas requisicoes em sequencia — aguarde ${segundos} ` +
+        `segundo${segundos === 1 ? "" : "s"} e tente de novo.`
+      : "Muitas requisicoes em sequencia — aguarde um instante e tente de novo.",
+    "rate_limit",
+    undefined,
+    segundos ?? undefined,
+  );
 }
 
 /** Falha de conexao: o servidor nao foi alcancado ou nao respondeu. */
@@ -207,6 +249,9 @@ export async function enviarComando(
       "auth",
     );
   }
+  if (resposta.status === 429) {
+    throw erroDeRateLimit(resposta);
+  }
   if (resposta.status === 503) {
     throw new ErroComando(
       "O servidor esta de pe, mas o provedor de LLM esta indisponivel " +
@@ -289,6 +334,9 @@ async function getAutenticado<T>(
         : "O servidor exige autenticacao e nenhum token esta configurado.",
       "auth",
     );
+  }
+  if (resposta.status === 429) {
+    throw erroDeRateLimit(resposta);
   }
   if (resposta.status === 404) {
     // Rota inexistente: servidor de versao anterior ao contrato desta tela.
