@@ -21,10 +21,14 @@ Limitacoes conhecidas do parse estatico:
   ``CommandResponse.actions`` tem default ``[]`` no servidor por conveniencia,
   e mesmo assim o cliente pode contar que a chave sempre vem no JSON — no fio
   ela e obrigatoria.
+- ``datetime`` no Pydantic equivale a ``string`` no TS: no fio e sempre string
+  ISO 8601 (o TS nao tem tipo de data no JSON). A comparacao e so estrutural —
+  presenca ou ausencia de fuso na string nao e verificada aqui.
 """
 
 import inspect
 import re
+from datetime import datetime
 from pathlib import Path
 from typing import Literal, get_args, get_origin
 
@@ -109,7 +113,14 @@ def _parse_ts(fonte: str) -> dict[str, dict[str, dict]]:
 
 # --- Introspeccao dos modelos Pydantic ---------------------------------------
 
-_PRIMITIVOS_PY = {str: "string", int: "number", float: "number", bool: "boolean"}
+_PRIMITIVOS_PY = {
+    str: "string",
+    int: "number",
+    float: "number",
+    bool: "boolean",
+    # No fio, datetime e string ISO 8601 — ver limitacoes na docstring.
+    datetime: "string",
+}
 
 
 def _normalizar_tipo_py(annotation) -> dict:
