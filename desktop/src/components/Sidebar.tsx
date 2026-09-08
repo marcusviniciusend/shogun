@@ -3,9 +3,12 @@ export type View = "chat" | "conversas" | "agentes" | "config";
 interface Props {
   view: View;
   dividido: boolean;
+  /** `true` = fala das respostas silenciada. */
+  mudo: boolean;
   onNovaConversa: () => void;
   onVer: (view: View) => void;
   onAlternarDividido: () => void;
+  onAlternarMudo: () => void;
 }
 
 /**
@@ -21,9 +24,11 @@ interface Props {
 export function Sidebar({
   view,
   dividido,
+  mudo,
   onNovaConversa,
   onVer,
   onAlternarDividido,
+  onAlternarMudo,
 }: Props) {
   // O modo dividido so junta chat + agentes; conversas e config ficam fora.
   const ativa = (v: View) =>
@@ -99,6 +104,25 @@ export function Sidebar({
           <path d="M12 4.5v11" />
         </svg>
         <span>Dividido</span>
+      </button>
+
+      <button
+        type="button"
+        className={`sidebar-item${mudo ? " ativa" : ""}`}
+        onClick={onAlternarMudo}
+        title={mudo ? "Reativar a voz" : "Silenciar a voz"}
+        aria-pressed={mudo}
+      >
+        {/* Alto-falante; mudo ganha o risco diagonal em vez de ondas. */}
+        <svg viewBox="0 0 20 20" aria-hidden>
+          <path d="M4 8v4h3l4 3.5v-11L7 8z" />
+          {mudo ? (
+            <path d="M13 8l4 4M17 8l-4 4" />
+          ) : (
+            <path d="M13.5 8a3 3 0 0 1 0 4M15.5 6.5a5.5 5.5 0 0 1 0 7" />
+          )}
+        </svg>
+        <span>{mudo ? "Mudo" : "Voz"}</span>
       </button>
 
       <div className="sidebar-vao" />

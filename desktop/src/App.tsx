@@ -22,6 +22,7 @@ import {
   verificarSaude,
 } from "./lib/api";
 import { executarInstrucoes } from "./lib/instrucoes";
+import { calar, falar, inicializarVozes } from "./lib/voz";
 import {
   CONFIG_DEFAULT,
   aplicarTema,
@@ -136,6 +137,9 @@ export default function App({ temaInicial }: Props) {
   }
 
   useEffect(() => {
+    // A lista de vozes do WebView2 chega assincrona (voiceschanged) — armar
+    // cedo para a primeira resposta ja sair na voz pt-BR quando houver.
+    inicializarVozes();
     (async () => {
       const guardada = await carregarConfig();
       setConfig(guardada);
@@ -210,6 +214,10 @@ export default function App({ temaInicial }: Props) {
       // mostra o text do servidor, falha mostra o fallback_text — nunca os dois.
       const textoFinal = await executarInstrucoes(resposta);
       setMensagens((m) => [...m, { autor: "shogun", texto: textoFinal }]);
+      // A voz fala EXATAMENTE o que a bolha mostra — depois do funil de
+      // instrucoes, a regra text x fallback_text vale para o audio tambem.
+      // Erros (catch abaixo e pre-checagem) nao sao falados.
+      if (!config.mudo) falar(textoFinal);
     } catch (e) {
       setMensagens((m) => [
         ...m,
@@ -305,6 +313,9 @@ export default function App({ temaInicial }: Props) {
    * conversa.
    */
   async function abrirConversa(id: string) {
+    // Trocar de conversa cala a fala da anterior — o audio pertence ao
+    // contexto que estava na tela.
+    calar();
     setSessoesCarregando(true);
     setSessoesErro(null);
     try {
@@ -323,12 +334,25 @@ export default function App({ temaInicial }: Props) {
   }
 
   async function novaConversa() {
+    calar();
     setMensagens([]);
     setSessionId(null);
     await salvarSessionId(null);
   }
 
+  /**
+   * Liga/desliga o mudo e persiste na hora — e um interruptor, nao um
+   * formulario. Mutar tambem cala a fala em curso.
+   */
+  async function alternarMudo() {
+    const nova = { ...config, mudo: !config.mudo };
+    if (nova.mudo) calar();
+    setConfig(nova);
+    await salvarConfig(nova);
+  }
+
   async function salvar(nova: Config) {
+    if (nova.mudo) calar();
     setConfig(nova);
     aplicarTema(nova.tema);
     await salvarConfig(nova);
@@ -347,6 +371,8 @@ export default function App({ temaInicial }: Props) {
       <Sidebar
         view={view}
         dividido={dividido}
+        mudo={config.mudo}
+        onAlternarMudo={() => void alternarMudo()}
         onNovaConversa={() => {
           void novaConversa();
           setView(dividido ? view : "chat");
