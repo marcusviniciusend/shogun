@@ -19,11 +19,15 @@ from app.core.contracts import (
     SessoesResponse,
 )
 from app.core.persistencia import RepositorioConversas, get_repositorio
+from app.core.rate_limit import limitar_leitura
 from app.core.security import require_auth
 from app.db.models import ROLE_USUARIO
 from app.db.repositorio import SessaoResumo
 
-router = APIRouter(tags=["sessoes"], dependencies=[Depends(require_auth)])
+router = APIRouter(
+    tags=["sessoes"],
+    dependencies=[Depends(require_auth), Depends(limitar_leitura)],
+)
 
 #: Palavras da primeira fala do usuario que viram titulo da sessao.
 _PALAVRAS_TITULO = 6

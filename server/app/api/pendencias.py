@@ -21,12 +21,16 @@ from starlette.concurrency import run_in_threadpool
 
 from app.core.contracts import PendenciaOut, PendenciasResponse
 from app.core.pendencias import PendenciasProvider, get_pendencias_provider
+from app.core.rate_limit import limitar_leitura
 from app.core.security import require_auth
 from app.domain import Pendencia
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(tags=["pendencias"], dependencies=[Depends(require_auth)])
+router = APIRouter(
+    tags=["pendencias"],
+    dependencies=[Depends(require_auth), Depends(limitar_leitura)],
+)
 
 
 def _como_pendencia_out(pendencia: Pendencia) -> PendenciaOut:
