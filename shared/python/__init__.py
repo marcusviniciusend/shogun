@@ -1,5 +1,6 @@
 """Contratos compartilhados entre o servidor Shogun e os clientes."""
 
+from datetime import datetime
 from typing import Literal
 
 from pydantic import BaseModel
@@ -72,3 +73,75 @@ class CommandResponse(BaseModel):
     session_id: str
     text: str
     actions: list[AgentAction] = []
+
+
+# -- Contratos de leitura (GET /pendencias e GET /sessoes) --------------------
+#
+# Promovidos das rotas quando o desktop passou a consumi-los tipado. Datetimes
+# trafegam como string ISO 8601: `timestamp` de pendencia vem com fuso UTC
+# ("...Z"); `criada_em`/`atualizada_em` de sessao e mensagem vem sem sufixo de
+# fuso (UTC implicito, o formato interno do banco).
+
+
+class PendenciaOut(BaseModel):
+    """Uma pendencia aberta de um agente, como o GET /pendencias devolve.
+
+    Espelho de fio do modelo de dominio do servidor; `status` carrega os
+    valores do enum StatusAgente.
+    """
+
+    agente_id: str
+    agente_nome: str
+    status: Literal["executando", "pendente", "travado", "erro", "concluido"]
+    descricao: str
+    timestamp: datetime
+    # Maior valor = mais urgente.
+    prioridade: int
+
+
+class PendenciasResponse(BaseModel):
+    """Resposta do GET /pendencias: abertas, das mais urgentes para as menos.
+
+    Mesma ordenacao da fala do /comando (prioridade decrescente, depois
+    timestamp): o painel e a voz nao podem discordar sobre o que e mais
+    urgente.
+    """
+
+    total: int
+    pendencias: list[PendenciaOut]
+
+
+class SessaoOut(BaseModel):
+    """Resumo de uma conversa, como o GET /sessoes devolve.
+
+    `titulo` e derivado na leitura (primeiras palavras da primeira fala do
+    usuario, ou "(conversa vazia)") — o cliente sempre recebe algo exibivel.
+    """
+
+    id: str
+    criada_em: datetime
+    atualizada_em: datetime
+    titulo: str
+    total_mensagens: int
+
+
+class SessoesResponse(BaseModel):
+    """Resposta do GET /sessoes: da mais recentemente ativa para a mais antiga."""
+
+    total: int
+    sessoes: list[SessaoOut]
+
+
+class MensagemOut(BaseModel):
+    """Uma fala do historico, como o GET /sessoes/{id}/mensagens devolve."""
+
+    autor: Literal["usuario", "shogun"]
+    texto: str
+    criada_em: datetime
+
+
+class MensagensResponse(BaseModel):
+    """Resposta do GET /sessoes/{id}/mensagens, em ordem cronologica."""
+
+    session_id: str
+    mensagens: list[MensagemOut]
