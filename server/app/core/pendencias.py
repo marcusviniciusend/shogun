@@ -5,6 +5,10 @@ a ligação com o FastAPI: qual implementação a aplicação usa por padrão e 
 de override em testes.
 """
 
+from fastapi import Depends
+from sqlalchemy.orm import Session as DbSession
+
+from app.db import RepositorioPendencias, get_db
 from app.domain import (
     Pendencia,
     PendenciasProvider,
@@ -19,12 +23,18 @@ __all__ = [
     "get_pendencias_provider",
 ]
 
-# Default: o orquestrador do próprio Shogun, hoje em memória. É uma
-# implementação real do contrato — quando não há nada registrado, a lista é
-# legitimamente vazia. Trocar por ``MaestriProvider(...)`` quando a API existir.
-_provider: PendenciasProvider = ShogunOrquestradorProvider()
 
+def get_pendencias_provider(
+    db: DbSession = Depends(get_db),
+) -> PendenciasProvider:
+    """Dependência do FastAPI — sobrescrita via ``app.dependency_overrides``.
 
-def get_pendencias_provider() -> PendenciasProvider:
-    """Dependência do FastAPI — sobrescrita via ``app.dependency_overrides``."""
-    return _provider
+    Default: o orquestrador do próprio Shogun apoiado no banco, um provider por
+    request sobre a sessão do request — o mesmo padrão de
+    ``core/persistencia.py``. O banco é exigido aqui como no resto do servidor
+    (sessões e mensagens já não funcionam sem ele); o modo em memória do
+    ``ShogunOrquestradorProvider`` continua existindo, mas como construção
+    explícita — útil em teste e em uso fora do servidor —, não como fallback
+    silencioso. Trocar por ``MaestriProvider(...)`` quando a API existir.
+    """
+    return ShogunOrquestradorProvider(repositorio=RepositorioPendencias(db))
