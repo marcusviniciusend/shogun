@@ -497,18 +497,21 @@ READMEs" (§1.3), a sessão é persistida no cliente, o CI existe
 Ollama com aquecimento no startup (`OLLAMA_MODEL` é escolha de quem opera —
 candidatos em `server/README.md`).
 
-### 4.1 Achados de review ainda em aberto
+### 4.1 Achados de review do PR #3 — todos resolvidos
 
-O PR #3 foi mergeado; o que sobrou dele é a lista do review de contrato
+O PR #3 foi mergeado; o que sobrou dele foi a lista do review de contrato
 (`.maestri/review-contrato-consumidor.md`), que na época foi classificada como
-"mergear primeiro, corrigir depois":
+"mergear primeiro, corrigir depois". **A lista fechou** — fica registrada
+porque cada item explica uma decisão que ainda vale hoje:
 
 - ✅ **`timestamp` naive vs aware quebrando o sort** — resolvido no PR #6:
   `agora_utc()` grava UTC sem `tzinfo`, um formato interno só;
 - ✅ **provider default afirmando "zero pendências" quando a fonte nunca foi
   conectada** — a rota hoje distingue os dois casos;
-- ⬜ **`str(exc)` vazando detalhe de implementação para o cliente** na falha do
-  provedor de pendências;
+- ✅ **`str(exc)` vazando detalhe de implementação para o cliente** na falha do
+  provedor de pendências — o cliente recebe mensagem genérica e estável; o
+  detalhe real fica no `logger.exception`. A varredura pegou junto o mesmo
+  padrão no 503 do `GET /pendencias` e no 503 de `LLMIndisponivelError`;
 - ✅ **`ShogunOrquestradorProvider` não é thread-safe** — resolvido com o
   provider persistente (PRs #27/#29): a injeção default cria um provider por
   request sobre a sessão de banco do request; o estado compartilhado agora vive
