@@ -46,8 +46,8 @@ histórico de conversas no desktop, e a promoção dos contratos de leitura para
 
 Suíte na ponta de `dev`: **231 passed**.
 
-`main` está parada na estrutura inicial (PR #1) e segue sendo a branch default
-(errada) do repositório no GitHub — ver §5.
+`main` está parada na estrutura inicial (PR #1), esperando o PR de marco.
+A branch default do repositório no GitHub já é `dev` — ver §5.
 
 ### 1.2 `server/` — o único componente com lógica real
 
@@ -600,9 +600,8 @@ Duas ordens deliberadas na rota, que valem lembrar antes de mexer nela:
 - A branch de trabalho é sempre **`dev`**. Nunca commitar direto em `main`.
 - Trabalho novo sai de `dev`, em `feature/<assunto>`.
 - `main` é integrada só via PR revisado.
-- ⚠️ A branch default do GitHub está como `main` — **todo PR nasce apontando para
-  `main` e a base precisa ser trocada à mão para `dev`**. Conferir isso é parte
-  da abertura do PR.
+- A branch default do GitHub **é `dev`**: todo PR já nasce com a base certa e
+  a troca manual de base deixou de ser necessária.
 
 **Worktree isolado por agente**
 

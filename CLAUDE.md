@@ -166,11 +166,11 @@ sessões.
 Quem trabalha no domínio não mexe em rotas; quem trabalha nas rotas consome a
 interface, não a implementação.
 
-## 6. ⚠️ Branch default do GitHub está errada
+## 6. Branch default do GitHub
 
-O repositório está com a branch default configurada como **`main`** no GitHub, mas a
-branch de integração do projeto é **`dev`**.
+A branch default do repositório no GitHub é **`dev`** — a mesma branch de
+integração do projeto. Todo PR já nasce apontando para `dev`, e a conferência
+manual de base que existia aqui **deixou de ser necessária**.
 
-Enquanto isso não for corrigido nas configurações do repositório, **todo PR nasce
-apontando para `main` e a base precisa ser trocada manualmente para `dev`** antes de
-qualquer revisão. Conferir isso é parte da abertura do PR.
+`main` continua sendo promovida só por PR de marco (`dev` → `main`) — o único
+caso legítimo de `main` como base.
