@@ -44,7 +44,8 @@ aquecimento do modelo no startup, checagem de migração, rate limit, TTS e
 histórico de conversas no desktop, e a promoção dos contratos de leitura para
 `shared/`. O detalhe de cada um está no histórico de merges de `dev`.
 
-Suíte na ponta de `dev`: **231 passed**.
+Suíte na ponta de `dev`: **240 passed** no servidor e **22 passed** no
+desktop — o desktop ganhou runner de teste (vitest) no PR #41.
 
 `main` está parada na estrutura inicial (PR #1), esperando o PR de marco.
 A branch default do repositório no GitHub já é `dev` — ver §5.
@@ -157,7 +158,7 @@ Fluxo:
 |---|---|
 | `conversar` | devolve a `resposta_falada` do modelo, sem agente |
 | `consultar_pendencias` | consulta o `PendenciasProvider` injetado, ordena por `(-prioridade, timestamp)`, aplica `limite`, monta a fala |
-| `abrir_app` | **delegada ao cliente**: a action sai com `instruction` estruturada (`ClientInstruction`, em `shared/`) contendo só o **nome** do app e um `fallback_text`; quem executa é o desktop/mobile, a partir de lista curada |
+| `abrir_app` | **delegada ao cliente**: a action sai com `instruction` estruturada (`ClientInstruction`, em `shared/`) contendo só o **nome** do app e um `fallback_text`; quem executa é o desktop/mobile, a partir de lista curada. Desde o #41 a invariante é **imposta, não só documentada**: `app` contendo `:`, `/` ou `\` é recusado antes de virar instrução (`status: "error"`, `instruction` nula), e o nome recusado não volta ecoado |
 
 Rotas de leitura, todas atrás do mesmo Bearer: `GET /pendencias` (painel, sem
 gastar LLM), `GET /sessoes` e `GET /sessoes/{id}/mensagens` (histórico de
@@ -196,13 +197,26 @@ não existe).
 
 #### Testes
 
-`pytest` a partir de `server/` (`pytest.ini`, `asyncio_mode = auto`). **231
+`pytest` a partir de `server/` (`pytest.ini`, `asyncio_mode = auto`). **240
 passando** na ponta de `dev`. **Nenhum teste chama API real**: provedores com
 cliente HTTP mockado (`httpx.MockTransport`, para exercitar o httpx de verdade),
 rotas com `app.dependency_overrides` (`get_llm_provider`,
 `get_pendencias_provider`, `get_settings`, `get_db`) e banco SQLite em memória.
 A paridade entre `shared/python` e `shared/ts` é verificada por parse estático
-do TS (`test_paridade_contratos.py`), sem toolchain Node no CI.
+do TS (`test_paridade_contratos.py`) — esse teste continua não precisando de
+Node.
+
+Desde o #41 o desktop tem suíte própria: **vitest**, `npm test` a partir de
+`desktop/`, **22 passando**, em `vitest.config.ts` separada da config do app.
+São testes de módulo puro (o plugin de shell do Tauri é mockado), então o CI
+roda sem Rust e sem navegador. Dois alvos:
+
+- `instrucoes.escopo.test.ts` — o par `APPS_CURADOS` ×
+  `src-tauri/capabilities/default.json`, acoplado só por string e por isso
+  invisível ao `tsc` e ao `cargo`;
+- `instrucoes.test.ts` — `normalizar` e a regra de consumo `text` ×
+  `fallback_text`, que não aparece em tipo nenhum e portanto escapa da
+  paridade de contratos.
 
 ### 1.3 `desktop/` e `mobile/` — scaffolds funcionais
 
@@ -493,7 +507,9 @@ De `docs/architecture.md` e `docs/DESIGN.md`:
 
 Resolvidas desde a versão anterior desta tabela: clientes deixaram de ser "só
 READMEs" (§1.3), a sessão é persistida no cliente, o CI existe
-(`.github/workflows/tests.yml`, Python 3.11 e 3.13) e o modelo local roda no
+(`.github/workflows/tests.yml`: `pytest` em Python 3.11 e 3.13 mais
+`vitest (desktop)`, os três obrigatórios na proteção de `dev`) e o modelo
+local roda no
 Ollama com aquecimento no startup (`OLLAMA_MODEL` é escolha de quem opera —
 candidatos em `server/README.md`).
 
@@ -626,10 +642,11 @@ principal.
 
 `pytest` a partir de `server/`. **Nenhum teste chama API real.** Rodar a **suíte
 completa** antes de considerar qualquer tarefa concluída — não só o arquivo que
-você mexeu.
+você mexeu. Mexeu no desktop, rodar também o `vitest`.
 
 ```bash
 cd server && pip install -r requirements-dev.txt && pytest
+cd desktop && npm ci && npm test
 ```
 
 **Fluxo**
