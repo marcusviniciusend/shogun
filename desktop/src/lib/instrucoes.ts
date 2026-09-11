@@ -49,7 +49,7 @@ const SINONIMOS: Record<string, keyof typeof APPS_CURADOS> = {
  * acentos, espacos colapsados. "Calculadora " e "calculadora" sao o mesmo
  * pedido.
  */
-function normalizar(nome: string): string {
+export function normalizar(nome: string): string {
   return nome
     .normalize("NFD")
     .replace(/[\u0300-\u036f]/g, "")
