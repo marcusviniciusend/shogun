@@ -46,8 +46,8 @@ histórico de conversas no desktop, e a promoção dos contratos de leitura para
 
 Suíte na ponta de `dev`: **231 passed**.
 
-`main` está parada na estrutura inicial (PR #1) e segue sendo a branch default
-(errada) do repositório no GitHub — ver §5.
+`main` está parada na estrutura inicial (PR #1), esperando o PR de marco.
+A branch default do repositório no GitHub já é `dev` — ver §5.
 
 ### 1.2 `server/` — o único componente com lógica real
 
@@ -497,18 +497,21 @@ READMEs" (§1.3), a sessão é persistida no cliente, o CI existe
 Ollama com aquecimento no startup (`OLLAMA_MODEL` é escolha de quem opera —
 candidatos em `server/README.md`).
 
-### 4.1 Achados de review ainda em aberto
+### 4.1 Achados de review do PR #3 — todos resolvidos
 
-O PR #3 foi mergeado; o que sobrou dele é a lista do review de contrato
+O PR #3 foi mergeado; o que sobrou dele foi a lista do review de contrato
 (`.maestri/review-contrato-consumidor.md`), que na época foi classificada como
-"mergear primeiro, corrigir depois":
+"mergear primeiro, corrigir depois". **A lista fechou** — fica registrada
+porque cada item explica uma decisão que ainda vale hoje:
 
 - ✅ **`timestamp` naive vs aware quebrando o sort** — resolvido no PR #6:
   `agora_utc()` grava UTC sem `tzinfo`, um formato interno só;
 - ✅ **provider default afirmando "zero pendências" quando a fonte nunca foi
   conectada** — a rota hoje distingue os dois casos;
-- ⬜ **`str(exc)` vazando detalhe de implementação para o cliente** na falha do
-  provedor de pendências;
+- ✅ **`str(exc)` vazando detalhe de implementação para o cliente** na falha do
+  provedor de pendências — o cliente recebe mensagem genérica e estável; o
+  detalhe real fica no `logger.exception`. A varredura pegou junto o mesmo
+  padrão no 503 do `GET /pendencias` e no 503 de `LLMIndisponivelError`;
 - ✅ **`ShogunOrquestradorProvider` não é thread-safe** — resolvido com o
   provider persistente (PRs #27/#29): a injeção default cria um provider por
   request sobre a sessão de banco do request; o estado compartilhado agora vive
@@ -600,9 +603,8 @@ Duas ordens deliberadas na rota, que valem lembrar antes de mexer nela:
 - A branch de trabalho é sempre **`dev`**. Nunca commitar direto em `main`.
 - Trabalho novo sai de `dev`, em `feature/<assunto>`.
 - `main` é integrada só via PR revisado.
-- ⚠️ A branch default do GitHub está como `main` — **todo PR nasce apontando para
-  `main` e a base precisa ser trocada à mão para `dev`**. Conferir isso é parte
-  da abertura do PR.
+- A branch default do GitHub **é `dev`**: todo PR já nasce com a base certa e
+  a troca manual de base deixou de ser necessária.
 
 **Worktree isolado por agente**
 
