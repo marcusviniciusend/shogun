@@ -291,8 +291,13 @@ o roteiro acima verifica:
 - **Splash, wordmark animado e `prefers-reduced-motion`.** Fora do roteiro por
   não serem regressão funcional; conferir de olho ao abrir.
 
-**Lacuna conhecida:** o desktop não tem *nenhum* teste de unidade. Se a v1.1
-quiser fechar essa lacuna, os candidatos mais baratos são funções puras já
-isoladas: `normalizar`/`executarInstrucoes` (`lib/instrucoes.ts`),
+**Lacuna parcialmente fechada:** quando este roteiro foi escrito, o desktop não
+tinha *nenhum* teste de unidade. O PR #41 abriu a suíte (`vitest`, `npm test` a
+partir de `desktop/`) e cobriu `normalizar` e `executarInstrucoes` — inclusive a
+regra `text` × `fallback_text`, que o F3 e o F8 exercitam a olho. Parte do que
+este roteiro pedia ao revisor agora falha sozinho no CI.
+
+O que ainda não tem teste, e segue sendo candidato barato para a v1.1:
 `segundosDeRetryAfter`/`traduzirFalhaDeRede` (`lib/api.ts`) e `quando()`
-(`Conversas.tsx`).
+(`Conversas.tsx`) — as duas primeiras cobrem o F3 e o F4, a última cobre o
+F6.3.

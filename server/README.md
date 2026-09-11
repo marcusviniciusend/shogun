@@ -319,7 +319,7 @@ Os modelos vivem na própria rota (`app/api/sessoes.py`), como o `/consumo`.
 | --- | --- |
 | `conversar` | devolve a resposta livre do modelo |
 | `consultar_pendencias` | consulta o `PendenciasProvider` injetado |
-| `abrir_app` | delegada ao cliente: a action vem com `instruction` estruturada (`ClientInstruction`, em `shared/`) e quem abre o app é o desktop/mobile; sem suporte ao app pedido, o cliente responde com `fallback_text` |
+| `abrir_app` | delegada ao cliente: a action vem com `instruction` estruturada (`ClientInstruction`, em `shared/`) e quem abre o app é o desktop/mobile; sem suporte ao app pedido, o cliente responde com `fallback_text`. O servidor manda só o **nome** do app: `app` contendo `:`, `/` ou `\` é recusado antes de virar instrução, com `status: "error"` e sem `instruction` no fio |
 
 ### Injeção de dependências
 
