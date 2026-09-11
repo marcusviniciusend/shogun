@@ -86,6 +86,26 @@ def test_falha_do_provedor_vira_503(client, auth):
     assert "pendencias" in resposta.json()["detail"].lower()
 
 
+def test_falha_do_provedor_nao_vaza_a_excecao_no_detail(client, auth):
+    """O detail do 503 e generico; a mensagem crua fica so no log do servidor."""
+    from app.main import app
+
+    # Imita o que uma excecao real carregaria: arquivo, driver, URL interna.
+    segredo = "/srv/shogun/.env psycopg2 http://maestri.interno:8080/api"
+
+    class ProvedorQuebrado(PendenciasFake):
+        def get_pendencias_agentes(self):
+            raise RuntimeError(segredo)
+
+    app.dependency_overrides[get_pendencias_provider] = lambda: ProvedorQuebrado()
+
+    detail = client.get("/pendencias", headers=auth).json()["detail"]
+
+    for pedaco in segredo.split():
+        assert pedaco not in detail
+    assert detail
+
+
 def test_nao_passa_pelo_llm(client, auth, llm):
     """A razao de existir da rota: nenhuma chamada ao provedor de LLM."""
     resposta = client.get("/pendencias", headers=auth)
