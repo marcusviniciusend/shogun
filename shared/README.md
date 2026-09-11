@@ -9,6 +9,25 @@ shared/
 └── python/      # modelos Pydantic (server) — fonte da verdade hoje
 ```
 
+## Regra número um: os dois lados mudam juntos
+
+`python/` e `ts/` são o mesmo contrato escrito duas vezes. **Nenhuma mudança
+entra em um sem entrar no outro na mesma branch** — campo novo, campo
+removido, tipo, opcionalidade, `Literal`/union. `type` novo em
+`ClientInstruction` é o caso clássico.
+
+`server/tests/test_paridade_contratos.py` lê o `ts/index.ts` como texto e
+compara com os `BaseModel` de `python/`: mexer num lado só quebra o CI, de
+propósito.
+
+O que a paridade **não** pega: as regras escritas em docstring e não em tipo
+— a regra de consumo do `ClientInstruction` (`text` × `fallback_text`, nunca
+os dois) e a invariante de segurança (o servidor manda só o nome do app,
+nunca URI ou caminho). Essas duas têm teste próprio, em
+`server/tests/test_comando.py` e `desktop/src/lib/instrucoes.test.ts`. Ao
+mudar o comportamento delas, mude as docstrings dos dois arquivos junto — ou
+o contrato passa a mentir sem nada acusar.
+
 ## Convenção de nomes: `snake_case` no fio
 
 Os campos trafegam exatamente como os modelos Pydantic os declaram —
