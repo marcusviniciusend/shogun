@@ -32,6 +32,13 @@ router = APIRouter(
     dependencies=[Depends(require_auth), Depends(limitar_leitura)],
 )
 
+#: Detalhe do 503 quando o provedor falha.
+#:
+#: Generico e estavel de proposito: a mensagem crua da excecao carrega caminho
+#: de arquivo, driver de banco e URL de provedor externo. O detalhe real fica
+#: no `logger.exception` abaixo, no servidor.
+_DETALHE_FALHA_PROVEDOR = "Nao consegui consultar as pendencias agora."
+
 
 def _como_pendencia_out(pendencia: Pendencia) -> PendenciaOut:
     return PendenciaOut(
@@ -64,7 +71,7 @@ async def listar_pendencias(
         logger.exception("Falha ao consultar pendencias")
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail=f"Nao consegui consultar as pendencias: {exc}",
+            detail=_DETALHE_FALHA_PROVEDOR,
         ) from exc
 
     pendencias.sort(key=lambda p: (-p.prioridade, p.timestamp))
