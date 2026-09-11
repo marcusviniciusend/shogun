@@ -117,6 +117,49 @@ def test_llm_indisponivel_retorna_503(client, corpo, auth, llm):
     assert resposta.status_code == 503
 
 
+#: Mensagem plantada nas exceções dos testes de vazamento. Imita o que uma
+#: exceção real carregaria: caminho de arquivo, driver de banco, URL interna.
+_SEGREDO = "/srv/shogun/.env psycopg2 http://maestri.interno:8080/api"
+
+
+def test_falha_do_provedor_nao_vaza_a_excecao_no_detail(client, corpo, auth, llm):
+    """O detail vai para o cliente; a mensagem crua da exceção, só para o log."""
+    from app.main import app
+
+    class ProvedorQuebrado(PendenciasFake):
+        def get_pendencias_agentes(self):
+            raise RuntimeError(_SEGREDO)
+
+    app.dependency_overrides[get_pendencias_provider] = lambda: ProvedorQuebrado()
+    llm.resposta = ComandoInterpretado(
+        acao="consultar_pendencias", parametros={}, resposta_falada="ok"
+    )
+
+    dados = client.post("/comando", json=corpo, headers=auth).json()
+
+    acao = dados["actions"][0]
+    assert acao["status"] == "error"
+    # Nem no detail, nem na fala: o segredo não sai do servidor por caminho nenhum.
+    corpo_inteiro = repr(dados)
+    for pedaco in _SEGREDO.split():
+        assert pedaco not in corpo_inteiro
+    # E o detail continua dizendo algo — não pode virar string vazia.
+    assert acao["detail"]
+
+
+def test_llm_indisponivel_nao_vaza_a_excecao_no_detail(client, corpo, auth, llm):
+    """A mensagem do LLMIndisponivelError expõe endpoint e modelo — fica no log."""
+    llm.erro = _SEGREDO
+
+    resposta = client.post("/comando", json=corpo, headers=auth)
+
+    assert resposta.status_code == 503
+    detail = resposta.json()["detail"]
+    for pedaco in _SEGREDO.split():
+        assert pedaco not in detail
+    assert detail
+
+
 def test_sem_pendencias_registradas_nao_inventa_nada(client, corpo, auth, llm):
     from app.main import app
 

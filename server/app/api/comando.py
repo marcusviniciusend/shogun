@@ -83,6 +83,20 @@ router = APIRouter(
 # Estados que merecem destaque na fala: são pendências que estão travando algo.
 _STATUS_CRITICOS = frozenset({StatusAgente.TRAVADO, StatusAgente.ERRO})
 
+#: Detalhe devolvido ao cliente quando o provedor de pendências falha.
+#:
+#: Genérico e estável de propósito: a mensagem crua da exceção carrega caminho
+#: de arquivo, driver de banco e URL de provedor externo — coisas que o cliente
+#: não precisa e que não devem sair do servidor. O detalhe real fica no
+#: `logger.exception` de quem tratou a falha.
+_DETALHE_FALHA_PROVEDOR = "provedor de pendências indisponível"
+
+#: Mesma ideia para o LLM: o cliente sabe que o Shogun não pensou, não *por que*
+#: — a mensagem do provedor (endpoint, modelo, resposta crua) fica no log.
+_DETALHE_LLM_INDISPONIVEL = (
+    "Não consegui pensar agora, Marcus. Tente de novo em instantes."
+)
+
 
 def _descrever(pendencia: Pendencia) -> str:
     """Uma pendência em uma frase curta, do jeito que o Shogun falaria."""
@@ -101,11 +115,15 @@ async def _consultar_pendencias(
         # chama a API do Maestri), então vai para a threadpool para não bloquear
         # o event loop enquanto outros comandos são atendidos.
         pendencias = list(await run_in_threadpool(provider.get_pendencias_agentes))
-    except Exception as exc:  # provedor externo: nunca derruba o comando
+    except Exception:  # provedor externo: nunca derruba o comando
         logger.exception("Falha ao consultar pendências")
         return (
             "Não consegui consultar suas pendências agora.",
-            AgentAction(agent="pendencias", status="error", detail=str(exc)),
+            AgentAction(
+                agent="pendencias",
+                status="error",
+                detail=_DETALHE_FALHA_PROVEDOR,
+            ),
         )
 
     if not pendencias:
@@ -204,7 +222,7 @@ async def processar_comando(
         logger.error("LLM indisponível: %s", exc)
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail=f"Não consegui pensar agora: {exc}",
+            detail=_DETALHE_LLM_INDISPONIVEL,
         ) from exc
 
     acoes: list[AgentAction] = []
