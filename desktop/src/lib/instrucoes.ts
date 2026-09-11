@@ -26,7 +26,7 @@ import type { ClientInstructionWire, CommandResponseWire } from "./types";
  * Cada entrada nomeia um comando de `capabilities/default.json`; os args
  * daqui tem que bater com os de la, senao o Tauri recusa o spawn.
  */
-const APPS_CURADOS: Record<string, { comando: string; args: string[] }> = {
+export const APPS_CURADOS: Record<string, { comando: string; args: string[] }> = {
   navegador: { comando: "abrir-navegador", args: ["https://www.google.com"] },
   explorer: { comando: "abrir-explorer", args: [] },
   calculadora: { comando: "abrir-calculadora", args: [] },
@@ -49,7 +49,7 @@ const SINONIMOS: Record<string, keyof typeof APPS_CURADOS> = {
  * acentos, espacos colapsados. "Calculadora " e "calculadora" sao o mesmo
  * pedido.
  */
-function normalizar(nome: string): string {
+export function normalizar(nome: string): string {
   return nome
     .normalize("NFD")
     .replace(/[\u0300-\u036f]/g, "")

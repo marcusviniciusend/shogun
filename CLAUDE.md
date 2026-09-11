@@ -140,6 +140,28 @@ antes decidir onde ele vive.
 - **Rotas e configuração** → `server/app/api/` e `server/app/core/`.
 - **Contrato usado também pelos clientes** → `shared/`.
 
+### Os dois `shared/` andam juntos — na mesma branch
+
+`shared/python` e `shared/ts` são **um contrato só, escrito duas vezes**. Toda
+mudança em um exige a mudança equivalente no outro, **no mesmo commit ou pelo
+menos na mesma branch** — nunca "o TS entra no PR seguinte". Vale para campo
+novo, campo removido, mudança de tipo, de opcionalidade e de `Literal`/union
+(por exemplo, um `type` novo em `ClientInstruction`).
+
+Quem garante isso é `server/tests/test_paridade_contratos.py`: ele lê
+`shared/ts/index.ts` como texto e compara contratos, campos, opcionalidade e
+tipos contra os `BaseModel` de `shared/python`. Mexer num lado só **quebra o
+CI** — o teste existe para transformar o esquecimento em falha barulhenta,
+não para ser contornado.
+
+Um aviso específico do `ClientInstruction`: a **regra de consumo**
+(`text` × `fallback_text`, nunca os dois) e a **invariante de segurança** (o
+servidor manda só o nome do app) vivem nas docstrings dos dois arquivos, e
+**nenhum tipo as representa**. Mudar o comportamento sem mudar as docstrings
+não quebra teste de paridade nenhum — passa a mentir em silêncio. A rede
+mecânica delas é outra: `server/tests/test_comando.py` (invariante) e
+`desktop/src/lib/instrucoes.test.ts` (regra de consumo).
+
 ## 4. Fluxo de trabalho esperado
 
 1. criar a branch a partir de `dev` (`git checkout dev && git checkout -b feature/<assunto>`);

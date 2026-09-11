@@ -156,6 +156,17 @@ async def _consultar_pendencias(
     )
 
 
+# Invariante de segurança do contrato (docstring de `ClientInstruction`, nos
+# dois `shared/`): o servidor manda só o NOME do app — nunca URI, scheme ou
+# caminho. O `app` vem do LLM, que interpreta texto do usuário: sem esta
+# barreira, "abre spotify:playlist/x" viajaria até o cliente e a garantia de
+# que o LLM não aponta para alvo arbitrário dependeria só da boa vontade dele.
+# O mapeamento nome -> executável continua sendo sempre do cliente.
+# `/` sozinho já cobre `//`; os três caracteres bastam para barrar scheme
+# (`spotify:`), caminho POSIX e caminho Windows.
+_APP_PROIBIDO = (":", "/", "\\")
+
+
 def _abrir_app(intencao: ComandoInterpretado) -> tuple[str, AgentAction]:
     """Delegação da ação ``abrir_app`` ao cliente.
 
@@ -164,6 +175,10 @@ def _abrir_app(intencao: ComandoInterpretado) -> tuple[str, AgentAction]:
     `AgentAction`. Cliente que ainda não executa instruções apenas exibe a
     action como metadado; cliente que não suporta o app pedido responde com
     `fallback_text`. Nada é executado aqui.
+
+    Um `app` que não seja um nome simples é **recusado** aqui, antes de virar
+    instrução: nenhuma instrução no fio é melhor que uma instrução que carrega
+    alvo executável.
     """
     app_alvo = str(intencao.parametros.get("app", "")).strip()
     if not app_alvo:
@@ -171,6 +186,20 @@ def _abrir_app(intencao: ComandoInterpretado) -> tuple[str, AgentAction]:
             "Não entendi qual aplicativo abrir, Marcus — pode repetir com o nome dele?",
             AgentAction(
                 agent="sistema", status="error", detail="abrir_app sem parâmetro app"
+            ),
+        )
+
+    if any(proibido in app_alvo for proibido in _APP_PROIBIDO):
+        # O nome recusado não vai para a fala nem para o `detail`: eco de
+        # entrada suspeita é superfície a mais, e o log do servidor já tem o
+        # comando inteiro.
+        logger.warning("abrir_app recusado: nome de app com URI ou caminho")
+        return (
+            "Só consigo abrir aplicativo pelo nome, Marcus — esse não parece um.",
+            AgentAction(
+                agent="sistema",
+                status="error",
+                detail="abrir_app com nome inválido",
             ),
         )
     instrucao = ClientInstruction(

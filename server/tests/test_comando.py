@@ -1,5 +1,7 @@
 """Testes da rota POST /comando — os 8 casos validados no smoke test."""
 
+import pytest
+
 from app.core.llm import ComandoInterpretado
 from app.core.pendencias import get_pendencias_provider
 from app.domain import MaestriProvider, StatusAgente
@@ -86,6 +88,55 @@ def test_abrir_app_sem_parametro_nao_gera_instrucao(client, corpo, auth, llm):
     acao = dados["actions"][0]
     assert acao["status"] == "error"
     assert acao["instruction"] is None
+
+
+@pytest.mark.parametrize(
+    "app_hostil",
+    [
+        "spotify:playlist/37i9dQ",  # scheme com alvo
+        "C:\Windows\System32\cmd.exe",  # caminho Windows
+        "/usr/bin/sh",  # caminho POSIX
+        "//servidor/compartilhado",  # UNC
+        "http://exemplo.invalido/x",  # URL inteira
+    ],
+)
+def test_abrir_app_recusa_nome_que_nao_seja_nome(client, corpo, auth, llm, app_hostil):
+    """Invariante de segurança: o fio nunca carrega URI, scheme ou caminho.
+
+    A docstring de `ClientInstruction` promete que o servidor manda só o NOME
+    do app — é isso que impede o LLM de apontar o cliente para um alvo
+    arbitrário. O `app` vem do LLM interpretando texto do usuário, então a
+    promessa precisa de guarda, não de boa vontade.
+    """
+    llm.resposta = ComandoInterpretado(
+        acao="abrir_app", parametros={"app": app_hostil}, resposta_falada="ok"
+    )
+
+    dados = client.post("/comando", json=corpo, headers=auth).json()
+
+    acao = dados["actions"][0]
+    assert acao["status"] == "error"
+    # Nenhuma instrução no fio: um cliente que só olhasse `instruction` não
+    # pode receber alvo executável nem por acidente.
+    assert acao["instruction"] is None
+    # E o nome recusado não volta ecoado — nem na fala, nem no detalhe.
+    assert app_hostil not in dados["text"]
+    assert app_hostil not in (acao["detail"] or "")
+
+
+def test_abrir_app_aceita_nome_com_espaco_e_acento(client, corpo, auth, llm):
+    """A guarda barra alvo executável, não nome de app de verdade."""
+    llm.resposta = ComandoInterpretado(
+        acao="abrir_app",
+        parametros={"app": "Área de Trabalho Remota"},
+        resposta_falada="ok",
+    )
+
+    dados = client.post("/comando", json=corpo, headers=auth).json()
+
+    acao = dados["actions"][0]
+    assert acao["status"] == "ok"
+    assert acao["instruction"]["app"] == "Área de Trabalho Remota"
 
 
 def test_comando_vazio_retorna_422(client, corpo, auth):

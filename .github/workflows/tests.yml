@@ -56,3 +56,30 @@ jobs:
         # real nem toca banco de verdade. Se algum passar a precisar de segredo,
         # e sinal de que virou teste de integracao e nao deveria estar aqui.
         run: pytest
+
+  vitest:
+    name: vitest (desktop)
+    runs-on: ubuntu-latest
+
+    defaults:
+      run:
+        # O vitest le a vitest.config.ts do pacote do desktop.
+        working-directory: desktop
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: desktop/package-lock.json
+
+      - name: Instalar dependencias
+        run: npm ci
+
+      - name: Rodar os testes do desktop
+        # Modulo puro, sem Tauri e sem navegador: o plugin de shell e mockado,
+        # entao nao precisa de runner grafico nem da toolchain Rust. O teste de
+        # escopo le o capabilities/default.json como arquivo.
+        run: npm test
