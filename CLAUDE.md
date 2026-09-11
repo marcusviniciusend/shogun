@@ -106,22 +106,31 @@ implementação concreta.
   `get_settings`). Fixtures compartilhadas em `server/tests/conftest.py`.
 - **Rodar a suíte completa antes de considerar qualquer tarefa concluída** — não
   apenas o arquivo de teste que você mexeu.
+- O desktop tem suíte própria desde o PR #41: **vitest**, `npm test` a partir de
+  `desktop/`. Testes de módulo puro (o plugin de shell do Tauri é mockado), em
+  `vitest.config.ts` separada da config do app. Mexeu no desktop, rode os dois.
 
 ```bash
 cd server
 pip install -r requirements-dev.txt
 pytest
+
+cd desktop
+npm ci
+npm test
 ```
 
 ### CI
 
-Existe CI: `.github/workflows/tests.yml` roda a suíte no GitHub Actions a cada
-push e a cada PR direcionado a `dev` ou `main`, em Python 3.11 e 3.13.
+Existe CI: `.github/workflows/tests.yml` roda no GitHub Actions a cada push e a
+cada PR direcionado a `dev` ou `main`, em dois jobs — `pytest` (Python 3.11 e
+3.13) e `vitest (desktop)`.
 
-**Todo PR deve estar verde antes do merge.** A proteção de branch ainda **não
-está habilitada** no GitHub — hoje nada impede tecnicamente um merge com a suíte
-vermelha, então a regra vale por disciplina de quem revisa. Habilitar a proteção
-é configuração manual, no repositório.
+**Todo PR precisa estar verde antes do merge, e agora isso é imposto:** a
+proteção de `dev` exige os três checks (`pytest (Python 3.11)`,
+`pytest (Python 3.13)` e `vitest (desktop)`) e está em modo estrito — a branch
+precisa estar atualizada com `dev`, então cada merge obriga um *Update branch*
+nos PRs restantes.
 
 O CI não usa segredo nenhum e não roda migração de banco: os testes usam SQLite
 em memória e mockam todo provedor externo. Se um teste novo precisar de
