@@ -4,7 +4,7 @@
 > surgirem. Quando divergir do código, o código vence — e este arquivo precisa
 > ser corrigido.
 >
-> Última atualização: 2026-09-07.
+> Última atualização: 2026-09-11.
 
 ---
 
@@ -62,9 +62,9 @@ de LLM. O desktop **executa** o `abrir_app` delegado (mapa curado de apps, com
 o escopo do `tauri-plugin-shell` travando executável e args) e **fala as
 respostas** — TTS via `speechSynthesis` do WebView2, voz pt-BR quando
 disponível, com opção de mudo nas configurações. Os tipos de `POST /comando`
-vêm de `shared/ts`; os dos GETs de leitura ainda são cópia local em
-`types.ts` (a promoção para `shared/` já aconteceu do lado do servidor — a
-migração do desktop é follow-up registrado).
+**e os dos GETs de leitura** vêm de `shared/ts`: `types.ts` só reexporta sob
+os nomes `*Wire` e guarda o que é exclusivo da interface. O follow-up de
+migração do desktop fechou.
 
 **Resiliência no desktop**
 O erro de rede deixou de ser engolido: a exceção vai para o console e a mensagem
@@ -78,10 +78,13 @@ falha de conexão vira bolha de erro com botão "Tentar de novo", sem reenviar
 sozinho.
 
 **Infraestrutura**
-CI no GitHub Actions a cada push e PR para `dev` e `main`, em Python 3.11 e 3.13.
-Suíte do servidor: 231 testes na última execução, nenhum chamando API real. A
-paridade entre `shared/python` e `shared/ts` é verificada por teste (parse
-estático do TS, sem toolchain Node no CI).
+CI no GitHub Actions a cada push e PR para `dev` e `main`, em dois jobs:
+`pytest` (Python 3.11 e 3.13) e `vitest (desktop)`. Os três checks são
+**obrigatórios** na proteção de `dev`, em modo estrito — a branch precisa
+estar atualizada antes do merge. Suíte do servidor: 240 testes na última
+execução, nenhum chamando API real; o desktop ganhou suíte própria em
+vitest no PR #41. A paridade entre `shared/python` e `shared/ts` é
+verificada por teste (parse estático do TS, sem toolchain Node no CI).
 
 ### O que ainda falta para chamar de v1.0
 
