@@ -11,7 +11,7 @@ interface Props {
 }
 
 /** Status que significam "algo travando": ganham o bengara. */
-const STATUS_CRITICOS = new Set(["travado", "erro"]);
+export const STATUS_CRITICOS = new Set(["travado", "erro"]);
 
 /**
  * Painel de pendencias dos agentes.
