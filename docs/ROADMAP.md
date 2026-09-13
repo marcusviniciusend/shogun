@@ -95,9 +95,10 @@ sozinho.
 CI no GitHub Actions a cada push e PR para `dev` e `main`, em dois jobs:
 `pytest` (Python 3.11 e 3.13) e `vitest (desktop)`. Os três checks são
 **obrigatórios** na proteção de `dev`, em modo estrito — a branch precisa
-estar atualizada antes do merge. Suíte do servidor: 240 testes na última
-execução, nenhum chamando API real; o desktop ganhou suíte própria em
-vitest no PR #41. A paridade entre `shared/python` e `shared/ts` é
+estar atualizada antes do merge. Na última execução (13/09/2026, `dev` em
+`5c03db8`): 257 testes no servidor, nenhum chamando API real, e 144 no
+desktop — suíte vitest própria desde o PR #41, check obrigatório do CI
+desde o #42. A paridade entre `shared/python` e `shared/ts` é
 verificada por teste (parse estático do TS, sem toolchain Node no CI).
 
 ### O que ainda falta para chamar de v1.0
