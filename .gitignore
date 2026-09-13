@@ -115,6 +115,10 @@ desktop.ini
 # E estado da maquina do desenvolvedor, nao codigo do projeto.
 .maestri/
 
+# ---------- Artefatos de ferramenta ----------
+# Grafo de conhecimento gerado pelo graphify (~4 MB, reconstruivel).
+graphify-out/
+
 # ---------- Logs / temp ----------
 *.log
 logs/

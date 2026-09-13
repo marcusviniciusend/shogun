@@ -321,3 +321,169 @@ def test_consumo_normaliza_data_com_fuso(client, auth, db, repo):
         params={"inicio": "2026-09-01T09:01:00-03:00"},
     ).json()
     assert dados["total_input_tokens"] == 0
+
+
+# --- taxa de acionamento do fallback --------------------------------------
+#
+# O bloco `fallback` de /consumo deriva do mesmo agregado por provedor. O que
+# estes testes protegem não é a divisão — é *quando ela se recusa a responder*.
+
+
+def _configurar_llm(client, settings_teste, principal: str, reserva: str = ""):
+    """Troca principal/reserva do ambiente sem recriar o TestClient.
+
+    A rota lê a configuração por `get_settings`, já sobrescrito pelo `client`;
+    aqui só reapontamos o override para uma `Settings` nova. `require_auth`
+    depende do mesmo objeto, então o token precisa continuar valendo.
+    """
+    from app.core.security import get_settings
+    from app.main import app
+
+    nova = settings_teste.model_copy(
+        update={
+            "shogun_llm_provider": principal,
+            "shogun_llm_fallback_provider": reserva,
+        }
+    )
+    app.dependency_overrides[get_settings] = lambda: nova
+    return nova
+
+
+def _fallback(client, auth, **params):
+    return client.get("/consumo", headers=auth, params=params).json()["fallback"]
+
+
+def test_fallback_calcula_a_taxa_do_par_configurado(
+    client, auth, db, repo, settings_teste
+):
+    _configurar_llm(client, settings_teste, "claude", "ollama")
+    dia = datetime(2026, 9, 1, 12, 0)
+    for _ in range(3):
+        _semear_uso(db, repo, "claude", 100, 10, dia)
+    _semear_uso(db, repo, "ollama", 100, 10, dia)
+
+    bloco = _fallback(client, auth)
+
+    assert bloco["principal_configurado"] == "claude"
+    assert bloco["reserva_configurada"] == "ollama"
+    assert bloco["mensagens_principal"] == 3
+    assert bloco["mensagens_reserva"] == 1
+    assert bloco["mensagens_outros"] == 0
+    # 1 de 4 mensagens saiu pelo reserva.
+    assert bloco["taxa"] == pytest.approx(0.25)
+    assert bloco["motivo_sem_taxa"] is None
+
+
+def test_fallback_nunca_acionado_e_taxa_zero_e_nao_ausencia_de_taxa(
+    client, auth, db, repo, settings_teste
+):
+    # Distinção que importa: com o par registrando uso, zero acionamentos é uma
+    # medida (0.0), não um "não sei" (None).
+    _configurar_llm(client, settings_teste, "claude", "ollama")
+    _semear_uso(db, repo, "claude", 100, 10, datetime(2026, 9, 1))
+
+    bloco = _fallback(client, auth)
+    assert bloco["taxa"] == 0.0
+    assert bloco["motivo_sem_taxa"] is None
+
+
+def test_fallback_sem_reserva_configurada_nao_inventa_taxa(
+    client, auth, db, repo, settings_teste
+):
+    _configurar_llm(client, settings_teste, "claude", "")
+    _semear_uso(db, repo, "claude", 100, 10, datetime(2026, 9, 1))
+
+    bloco = _fallback(client, auth)
+    assert bloco["reserva_configurada"] is None
+    assert bloco["taxa"] is None
+    assert bloco["motivo_sem_taxa"] == "sem_reserva_configurada"
+
+
+def test_fallback_reserva_igual_ao_principal_e_tratada_como_ausente(
+    client, auth, settings_teste
+):
+    # Mesma regra de `montar_provider`: nesse caso nem se monta um
+    # FallbackLLMProvider, então não existe reserva para medir.
+    _configurar_llm(client, settings_teste, "claude", "claude")
+
+    bloco = _fallback(client, auth)
+    assert bloco["reserva_configurada"] is None
+    assert bloco["motivo_sem_taxa"] == "sem_reserva_configurada"
+
+
+def test_fallback_sem_mensagens_do_par_no_periodo_nao_divide_por_zero(
+    client, auth, db, repo, settings_teste
+):
+    _configurar_llm(client, settings_teste, "claude", "ollama")
+    _semear_uso(db, repo, "deepseek", 100, 10, datetime(2026, 9, 1))
+
+    bloco = _fallback(client, auth)
+    assert bloco["mensagens_outros"] == 1
+    assert bloco["taxa"] is None
+    assert bloco["motivo_sem_taxa"] == "sem_mensagens_do_par"
+
+
+def test_fallback_com_provedor_que_nao_grava_uso_se_recusa_a_responder(
+    client, auth, db, repo, settings_teste
+):
+    # `deterministico` nunca escreve em messages_uso — é o fallback final que
+    # sempre responde e some do banco. Zero linhas dele NÃO é zero
+    # acionamentos, então a taxa não pode sair 0.0 com cara de medida.
+    _configurar_llm(client, settings_teste, "claude", "deterministico")
+    _semear_uso(db, repo, "claude", 100, 10, datetime(2026, 9, 1))
+
+    bloco = _fallback(client, auth)
+    assert bloco["mensagens_reserva"] == 0
+    assert bloco["taxa"] is None
+    assert bloco["motivo_sem_taxa"] == "provedor_nao_registra_uso"
+
+
+def test_fallback_delata_mudanca_de_configuracao_em_mensagens_outros(
+    client, auth, db, repo, settings_teste
+):
+    # A armadilha da janela: o principal de hoje é `ollama`, mas o período
+    # consultado tem mensagens de `claude` e `deepseek`, que não são nem o
+    # principal nem o reserva de agora. A resposta não finge que sempre foi
+    # assim — conta essas mensagens à parte.
+    _configurar_llm(client, settings_teste, "ollama", "deepseek")
+    dia = datetime(2026, 9, 1, 12, 0)
+    _semear_uso(db, repo, "ollama", 100, 10, dia)
+    _semear_uso(db, repo, "deepseek", 100, 10, dia)
+    _semear_uso(db, repo, "claude", 100, 10, dia)
+    _semear_uso(db, repo, "openai_mini", 100, 10, dia)
+
+    bloco = _fallback(client, auth)
+    assert bloco["mensagens_principal"] == 1
+    assert bloco["mensagens_reserva"] == 1
+    # claude e openai_mini: prova de que a configuração já foi outra.
+    assert bloco["mensagens_outros"] == 2
+    # A taxa segue sendo do par de hoje — descritiva, não histórica.
+    assert bloco["taxa"] == pytest.approx(0.5)
+
+
+def test_fallback_respeita_a_janela_consultada(client, auth, db, repo, settings_teste):
+    _configurar_llm(client, settings_teste, "claude", "ollama")
+    _semear_uso(db, repo, "ollama", 100, 10, datetime(2026, 8, 1))
+    _semear_uso(db, repo, "claude", 100, 10, datetime(2026, 9, 1))
+
+    # Janela só de agosto: o reserva atendeu tudo.
+    assert _fallback(client, auth, fim="2026-08-15T00:00:00")["taxa"] == 1.0
+    # Janela só de setembro: o principal atendeu tudo.
+    assert _fallback(client, auth, inicio="2026-08-15T00:00:00")["taxa"] == 0.0
+
+
+def test_provedores_sem_uso_esta_em_dia():
+    """Provedor novo que não grava `UsoTokens` precisa entrar na lista.
+
+    Mesmo espírito de `test_paridade_contratos`: o que não pode acontecer é a
+    lista silenciosamente desatualizar e a taxa passar a mentir. Aqui o sinal é
+    o código-fonte da classe citar `UsoTokens` — quem preenche uso, cita.
+    """
+    import inspect
+
+    from app.core.llm import PROVEDORES_SEM_REGISTRO_DE_USO, PROVIDERS
+
+    assert PROVEDORES_SEM_REGISTRO_DE_USO <= set(PROVIDERS)
+    for nome, classe in PROVIDERS.items():
+        grava = "UsoTokens" in inspect.getsource(inspect.getmodule(classe))
+        assert grava is (nome not in PROVEDORES_SEM_REGISTRO_DE_USO), nome
