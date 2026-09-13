@@ -9,17 +9,22 @@
  * do escopo http: a permissao no capabilities e parte da feature, nao
  * detalhe.)
  *
- * Regra de consumo (docstring de `ClientInstruction`): tentar executar ANTES
- * de exibir/falar. Sucesso -> `CommandResponse.text`; falha, app fora do mapa
- * ou `type` desconhecido -> `fallback_text` EM VEZ de `text`, nunca os dois.
+ * Regra de consumo (docstring de `ClientInstruction`): o cliente DECIDE
+ * antes de falar — avalia se consegue executar, exibe/fala a resposta
+ * correspondente a essa decisao e so entao executa; no desktop, decidir e
+ * executar sao o mesmo passo. Decisao viavel -> `CommandResponse.text`;
+ * inviavel, falha, app fora do mapa ou `type` desconhecido ->
+ * `fallback_text` EM VEZ de `text`, nunca os dois.
  */
 import { Command } from "@tauri-apps/plugin-shell";
 
 import type { ClientInstructionWire, CommandResponseWire } from "./types";
 
 /**
- * Mapa curado nome -> comando do escopo shell. Pequeno de proposito;
- * configuravel fica para depois. Windows-first: `explorer.exe` cobre URL
+ * Mapa curado nome -> comando do escopo shell. Pequeno de proposito, e de
+ * build de proposito: a trava 2 fixa executavel e args por comando nomeado,
+ * entao adicionar um app e atualizacao, nao configuracao — ver
+ * docs/mapa-apps-configuravel.md. Windows-first: `explorer.exe` cobre URL
  * (navegador padrao), pasta (gerenciador de arquivos) e URI `spotify:` —
  * se o Spotify nao estiver instalado, o proprio Windows avisa.
  *
