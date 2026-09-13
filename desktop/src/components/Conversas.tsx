@@ -16,7 +16,7 @@ interface Props {
  * O servidor grava UTC sem tzinfo (docs/DATABASE.md); o sufixo Z faz o
  * Date interpretar como UTC e exibir no fuso local.
  */
-function quando(iso: string): string {
+export function quando(iso: string): string {
   const data = new Date(iso.endsWith("Z") ? iso : `${iso}Z`);
   if (Number.isNaN(data.getTime())) return "";
   const hoje = new Date();
