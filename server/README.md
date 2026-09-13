@@ -204,8 +204,9 @@ Contratos (`CommandRequest` / `CommandResponse`) vêm de `shared/python`.
 
 ### `GET /consumo`
 
-Tokens consumidos, custo real acumulado e comparativo de preços entre os
-provedores. Mesma autenticação do `/comando`. Parâmetros opcionais `inicio`
+Tokens consumidos, custo real acumulado, comparativo de preços entre os
+provedores e a frequência com que o fallback foi acionado. Mesma autenticação
+do `/comando`. Parâmetros opcionais `inicio`
 (inclusivo) e `fim` (exclusivo), em ISO 8601 — sem eles, o período é tudo
 desde o início.
 
@@ -230,7 +231,16 @@ curl -H "Authorization: Bearer $SHOGUN_AUTH_TOKEN" \
     { "provider": "deepseek", "custo_usd": 1.092 },
     { "provider": "ollama", "custo_usd": 0.0 },
     { "provider": "openai_mini", "custo_usd": 0.81 }
-  ]
+  ],
+  "fallback": {
+    "principal_configurado": "claude",
+    "reserva_configurada": "ollama",
+    "mensagens_principal": 3,
+    "mensagens_reserva": 1,
+    "mensagens_outros": 0,
+    "taxa": 0.25,
+    "motivo_sem_taxa": null
+  }
 }
 ```
 
@@ -239,6 +249,36 @@ O custo real usa o provedor que de fato atendeu cada mensagem (tabela
 cada provedor. A tabela de preços é a constante `PRECOS` em
 `app/core/llm/precos.py` — como atualizá-la está documentado no próprio módulo
 e em `docs/DATABASE.md`.
+
+#### O bloco `fallback` — o que ele mede, e o que ele não mede
+
+`taxa` é `mensagens_reserva / (mensagens_principal + mensagens_reserva)`: a
+fração das mensagens do par configurado que o provedor reserva atendeu. É a
+medição que a regra prática de avaliação do modelo local pede ("rodar com
+fallback ligado e medir a frequência com que ele é acionado") sem precisar
+grepar log de `uvicorn`. Sai por derivação de `messages_uso` — cada linha já
+guarda o provedor que respondeu, e o `FallbackLLMProvider` não sobrescreve esse
+nome —, então não há coluna nova, estado novo nem consulta a mais.
+
+**A leitura é descritiva, não histórica.** O banco registra quem *respondeu*,
+nunca quem estava *configurado* como principal naquele momento, e o endpoint
+aceita janela. `principal_configurado` e `reserva_configurada` descrevem o
+ambiente de **agora**; as contagens descrevem o período consultado. Se a
+configuração mudou no meio, a resposta diz "estas mensagens foram atendidas por
+X, e X é o principal configurado hoje" — não "X era o principal o período
+inteiro". `mensagens_outros` é o sinal disso: mensagem atendida por quem não é
+nem o principal nem o reserva de hoje só existe se a configuração já foi outra.
+
+Quando o número mentiria, `taxa` vem `null` e `motivo_sem_taxa` diz por quê:
+
+| `motivo_sem_taxa` | Quando |
+|---|---|
+| `sem_reserva_configurada` | `SHOGUN_LLM_FALLBACK_PROVIDER` vazio (ou igual ao principal, caso em que é ignorado, como em `montar_provider`) — não há reserva para medir. |
+| `sem_mensagens_do_par` | Nenhuma mensagem do principal nem do reserva no período: denominador zero. |
+| `provedor_nao_registra_uso` | Principal ou reserva está em `PROVEDORES_SEM_REGISTRO_DE_USO` (`app/core/llm/registry.py`) — hoje só `deterministico`, que não chama API e portanto nunca escreve em `messages_uso`. Zero linhas dele não é zero acionamentos, é ausência de registro. |
+
+Note a distinção que o campo preserva: `taxa: 0.0` é uma **medida** (o reserva
+nunca foi acionado no período), enquanto `taxa: null` é um **não sei**.
 
 ### `GET /pendencias`
 

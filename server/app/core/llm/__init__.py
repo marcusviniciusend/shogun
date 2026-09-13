@@ -24,6 +24,7 @@ from app.core.llm.openai_compat import (
     OpenAIMiniProvider,
 )
 from app.core.llm.registry import (
+    PROVEDORES_SEM_REGISTRO_DE_USO,
     PROVIDERS,
     ProviderDesconhecidoError,
     criar_provider,
@@ -35,6 +36,7 @@ __all__ = [
     "ACOES",
     "DICA_ESQUEMA",
     "ESQUEMA_COMANDO",
+    "PROVEDORES_SEM_REGISTRO_DE_USO",
     "PROVIDERS",
     "SYSTEM_PROMPT",
     "Acao",

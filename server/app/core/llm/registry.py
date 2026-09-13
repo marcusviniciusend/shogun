@@ -29,6 +29,15 @@ PROVIDERS: dict[str, type[LLMProvider]] = {
 }
 
 
+#: Provedores que NUNCA gravam :class:`UsoTokens` — não chamam API de token
+#: nenhuma, então não aparecem em ``messages_uso``. Quem lê o banco para medir
+#: frequência de uso (ver `GET /consumo`) fica cego quanto a eles: zero linhas
+#: não quer dizer zero acionamentos, quer dizer ausência de registro. Provedor
+#: novo que não preencha `uso` precisa entrar aqui — o teste
+#: `test_provedores_sem_uso_esta_em_dia` transforma o esquecimento em falha.
+PROVEDORES_SEM_REGISTRO_DE_USO: frozenset[str] = frozenset({"deterministico"})
+
+
 class ProviderDesconhecidoError(ValueError):
     """O nome configurado não existe em :data:`PROVIDERS`."""
 
