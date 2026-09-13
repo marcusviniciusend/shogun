@@ -503,9 +503,11 @@ De `docs/architecture.md` e `docs/DESIGN.md`:
 | 2 | **STT** | fora da v1.0, entra na v1.1 | §3.3 |
 | 3 | **Mobile congelado** | scaffold mergeado; retomada só pós-v1.0 do desktop | §1.3 |
 | 4 | **`MaestriProvider`** | stub — a API do Maestri ainda não existe | §4.5 |
-| 5 | **Desktop importar os tipos de leitura de `shared/ts`** | os GETs ainda usam cópia local em `types.ts` | §1.3 |
 
-Resolvidas desde a versão anterior desta tabela: clientes deixaram de ser "só
+Resolvidas desde a versão anterior desta tabela: o desktop **deixou de ter
+cópia local** dos contratos de leitura — `desktop/src/lib/types.ts` hoje só
+reexporta de `shared/ts` sob os nomes `*Wire`, e o que sobra lá é tipo de
+interface, que não trafega na rede; clientes deixaram de ser "só
 READMEs" (§1.3), a sessão é persistida no cliente, o CI existe
 (`.github/workflows/tests.yml`: `pytest` em Python 3.11 e 3.13 mais
 `vitest (desktop)`, os três obrigatórios na proteção de `dev`) e o modelo
