@@ -1,9 +1,10 @@
 # Roteiro de regressão manual — desktop v1.0
 
 Roteiro de conferência do cliente desktop antes de fechar a v1.0. Existe porque
-a suíte automatizada cobre o servidor (231 testes) e **nada** do cliente: no
-desktop, o que roda sem humano é compilação de tipos (`tsc`) e de Rust
-(`cargo`). Todo comportamento — bolha de erro, voz, app abrindo, refresh do
+a suíte automatizada cobre o servidor (pytest) e a lógica pura do desktop
+(vitest, com o plugin de shell do Tauri mockado — a contagem corrente aparece
+nos checks do CI), mas **não** cobre a fiação em `App.tsx` nem nada que dependa
+de runtime. Todo comportamento — bolha de erro, voz, app abrindo, refresh do
 painel — só se verifica com o app na tela.
 
 Cada item tem **passo**, **resultado esperado** e **onde olhar quando falhar**.
