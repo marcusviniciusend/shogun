@@ -29,6 +29,13 @@ import {
   rotearFalha,
 } from "./lib/falhas";
 import { executarInstrucoes } from "./lib/instrucoes";
+import {
+  divididoAposVer,
+  ordenarSessoes,
+  viewAposAlternarDividido,
+  viewAposNovaConversa,
+  visibilidade,
+} from "./lib/telas";
 import { calar, falar, inicializarVozes } from "./lib/voz";
 import {
   CONFIG_DEFAULT,
@@ -274,11 +281,7 @@ export default function App({ temaInicial }: Props) {
     setSessoesErro(null);
     try {
       const resposta = await listarSessoes(config);
-      setSessoes(
-        [...resposta.sessoes].sort((a, b) =>
-          b.atualizada_em.localeCompare(a.atualizada_em),
-        ),
-      );
+      setSessoes(ordenarSessoes(resposta.sessoes));
     } catch (e) {
       setSessoesErro(registrarFalha(e));
     } finally {
@@ -347,10 +350,7 @@ export default function App({ temaInicial }: Props) {
   }
 
   // O dividido so junta chat + agentes; conversas e uma tela propria.
-  const emDashboard = view === "chat" || view === "agentes";
-  const mostraChat = view === "chat" || (dividido && emDashboard);
-  const mostraAgentes = view === "agentes" || (dividido && emDashboard);
-  const mostraConversas = view === "conversas";
+  const telas = visibilidade(view, dividido);
 
   return (
     <div className="app">
@@ -361,16 +361,16 @@ export default function App({ temaInicial }: Props) {
         onAlternarMudo={() => void alternarMudo()}
         onNovaConversa={() => {
           void novaConversa();
-          setView(dividido ? view : "chat");
+          setView(viewAposNovaConversa(view, dividido));
         }}
         onVer={(v) => {
           setView(v);
-          if (v !== "config") setDividido(false);
+          setDividido(divididoAposVer(v, dividido));
         }}
         onAlternarDividido={() => {
           setDividido((d) => !d);
           // Dividido e sempre chat + agentes: vindo de outra tela, aterra no chat.
-          if (view === "config" || view === "conversas") setView("chat");
+          setView(viewAposAlternarDividido(view));
         }}
       />
       <header className="app-cabecalho">
@@ -412,7 +412,7 @@ export default function App({ temaInicial }: Props) {
         />
       ) : (
         <main className={`dashboard${dividido ? " dividido" : ""}`}>
-          {mostraConversas && (
+          {telas.conversas && (
             <Conversas
               sessoes={sessoes}
               sessionIdAtual={sessionId}
@@ -422,7 +422,7 @@ export default function App({ temaInicial }: Props) {
               onAbrir={(id) => void abrirConversa(id)}
             />
           )}
-          {mostraChat && (
+          {telas.chat && (
             <Chat
               mensagens={mensagens}
               carregando={chatCarregando}
@@ -431,7 +431,7 @@ export default function App({ temaInicial }: Props) {
               onReenviar={(indice, texto) => void tentarDeNovo(indice, texto)}
             />
           )}
-          {mostraAgentes && (
+          {telas.agentes && (
             <PainelAgentes
               pendencias={pendencias}
               total={totalPendencias}
