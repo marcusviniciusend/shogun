@@ -67,9 +67,23 @@ os nomes `*Wire` e guarda o que é exclusivo da interface. O follow-up de
 migração do desktop fechou.
 
 **Resiliência no desktop**
-O erro de rede deixou de ser engolido: a exceção vai para o console e a mensagem
-distingue "ninguém escutando na porta", "aceitou a conexão mas não respondeu" e
-"nome que não resolve", com fallback que preserva o texto original. O app
+O erro de rede deixou de ser engolido: a exceção vai para o console, o **tipo**
+do erro (timeout × rede) é classificado corretamente — ele vem de
+`signal.aborted`, não do texto da falha — e o caso não reconhecido cai num
+genérico que **preserva o texto original**. O que **não** se confirma hoje é a
+distinção fina de causa: `traduzirFalhaDeRede` tem ramos para "ninguém
+escutando na porta", "aceitou a conexão mas não respondeu" e "nome que não
+resolve", mas a string que chega ao JS não casa com nenhum deles. Pela análise
+das versões travadas no `Cargo.lock`, `tauri-plugin-http` 2.6.0 serializa
+apenas o `Display` do erro do `reqwest`, e o `reqwest` 0.12 deixou de escrever
+a `source` no `Display` — o JS recebe só `error sending request for url (...)`,
+sem `refused`, sem `dns`, sem código de OS. Na prática a UI mostra o genérico
+com a causa crua, que é degradação por desenho, não silêncio. **Ressalva:** isso
+é análise estática das dependências travadas, não observação do app rodando —
+quem fecha a questão são os passos F1.2 e F1.5 do
+[roteiro de regressão](roteiro-regressao-v1.md), ainda não executados. O que
+fazer a respeito (aceitar o genérico, ler a cadeia de `source` num `invoke`
+próprio em Rust, ou abrir issue no plugin) é decisão em aberto. O app
 checa `GET /health` — ~1,5 ms, sem token, sem tocar no modelo — ao abrir, ao
 salvar configurações e antes de cada envio, com faixa visível quando o servidor
 não responde. O `POST /comando` tem timeout de 60 s; 503 (modelo indisponível)

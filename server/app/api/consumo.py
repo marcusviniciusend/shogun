@@ -5,15 +5,18 @@ de resposta vivem aqui e não em `shared/`.
 """
 
 from datetime import datetime, timezone
+from typing import Literal
 
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel
 from starlette.concurrency import run_in_threadpool
 
+from app.core.config import Settings
 from app.core.llm.precos import PRECOS, custo_usd
+from app.core.llm.registry import PROVEDORES_SEM_REGISTRO_DE_USO
 from app.core.persistencia import RepositorioConversas, get_repositorio
 from app.core.rate_limit import limitar_leitura
-from app.core.security import require_auth
+from app.core.security import get_settings, require_auth
 
 router = APIRouter(
     tags=["consumo"],
@@ -38,6 +41,58 @@ class ComparativoOut(BaseModel):
     custo_usd: float
 
 
+#: Por que `FallbackOut.taxa` veio nula. Códigos, não frase — quem consome
+#: decide como mostrar, e o motivo não muda de texto sem quebrar o contrato.
+MotivoSemTaxa = Literal[
+    #: `SHOGUN_LLM_FALLBACK_PROVIDER` está vazio: não existe reserva para medir.
+    "sem_reserva_configurada",
+    #: Nenhuma mensagem do par (principal, reserva) no período — denominador zero.
+    "sem_mensagens_do_par",
+    #: Principal ou reserva não gravam uso (ver `PROVEDORES_SEM_REGISTRO_DE_USO`):
+    #: a contagem seria cega e o zero resultante mentiria.
+    "provedor_nao_registra_uso",
+]
+
+
+class FallbackOut(BaseModel):
+    """Com que frequência o provedor reserva atendeu — leitura DESCRITIVA.
+
+    A regra prática de `docs/CONTEXTO-GERAL.md` (4.2) para avaliar o modelo
+    local é "rodar com fallback ligado e medir a frequência com que ele é
+    acionado". Este bloco é essa medida, derivada de `messages_uso`: cada linha
+    guarda o provedor que de fato respondeu, e o `FallbackLLMProvider` não
+    sobrescreve esse nome. Nada é estimado e nada é gravado a mais.
+
+    **A ressalva que este bloco NÃO pode esconder:** o banco registra quem
+    respondeu, nunca quem estava *configurado* como principal na hora. Já
+    `principal_configurado` e `reserva_configurada` vêm do ambiente de AGORA.
+    Se a configuração mudou dentro da janela consultada (e `/consumo` aceita
+    janela), os rótulos descrevem o hoje e as contagens descrevem o então — daí
+    a resposta dizer "estas mensagens foram atendidas por X, e X é o principal
+    configurado hoje", e não "X era o principal o período inteiro".
+
+    `mensagens_outros` é o sinal dessa divergência: mensagem atendida por
+    provedor que não é nem o principal nem o reserva de hoje só existe se a
+    configuração já foi outra (ou se outro provedor escreveu no banco). Maior
+    que zero, a taxa vale para o par de hoje e não para o período inteiro —
+    fica descritiva, e é assim que deve ser lida.
+    """
+
+    #: `SHOGUN_LLM_PROVIDER` como está AGORA — não necessariamente no período.
+    principal_configurado: str
+    #: `SHOGUN_LLM_FALLBACK_PROVIDER` agora; `None` quando não há fallback.
+    reserva_configurada: str | None
+    #: Mensagens do período atendidas por cada um; `outros` = nem um nem outro.
+    mensagens_principal: int
+    mensagens_reserva: int
+    mensagens_outros: int
+    #: reserva / (principal + reserva), 0.0–1.0. `None` quando não dá para
+    #: calcular honestamente — o motivo vem em `motivo_sem_taxa`.
+    taxa: float | None
+    #: `None` exatamente quando `taxa` não é `None`.
+    motivo_sem_taxa: MotivoSemTaxa | None
+
+
 class ConsumoResponse(BaseModel):
     inicio: datetime | None
     fim: datetime | None
@@ -47,6 +102,7 @@ class ConsumoResponse(BaseModel):
     custo_real_usd: float
     por_provider: list[ConsumoProviderOut]
     comparativo: list[ComparativoOut]
+    fallback: FallbackOut
 
 
 def _para_utc_naive(momento: datetime | None) -> datetime | None:
@@ -64,18 +120,76 @@ def _para_utc_naive(momento: datetime | None) -> datetime | None:
 # baratos sem devolver ruído de ponto flutuante no JSON.
 _CASAS = 6
 
+# A taxa é uma fração de 0 a 1; 4 casas descem à décima de ponto percentual,
+# resolução de sobra para "o reserva atendeu 3,7% das mensagens".
+_CASAS_TAXA = 4
+
+
+def _resumir_fallback(linhas, config: Settings) -> FallbackOut:
+    """Deriva o bloco `fallback` das linhas já agregadas por provedor.
+
+    Reaproveita a mesma consulta de `por_provider` — a taxa não custa ida
+    nenhuma a mais ao banco, é releitura do que já veio.
+
+    Toda a honestidade do bloco está em quando a taxa **não** é calculada; ver
+    a docstring de :class:`FallbackOut` para o que os números descrevem e o que
+    não descrevem.
+    """
+    principal = config.shogun_llm_provider
+    reserva = config.shogun_llm_fallback_provider.strip() or None
+    # Mesma regra de `montar_provider`: reserva igual ao principal é ignorada,
+    # e o provedor montado nem chega a ser um FallbackLLMProvider.
+    if reserva == principal:
+        reserva = None
+
+    mensagens = {linha.provider: linha.mensagens for linha in linhas}
+    do_principal = mensagens.get(principal, 0)
+    do_reserva = mensagens.get(reserva, 0) if reserva else 0
+    total = sum(mensagens.values())
+
+    motivo: MotivoSemTaxa | None = None
+    if reserva is None:
+        motivo = "sem_reserva_configurada"
+    elif {principal, reserva} & PROVEDORES_SEM_REGISTRO_DE_USO:
+        # Zero linhas de um provedor que nunca grava uso não significa zero
+        # acionamentos — significa ausência de registro. Melhor não responder.
+        motivo = "provedor_nao_registra_uso"
+    elif do_principal + do_reserva == 0:
+        motivo = "sem_mensagens_do_par"
+
+    return FallbackOut(
+        principal_configurado=principal,
+        reserva_configurada=reserva,
+        mensagens_principal=do_principal,
+        mensagens_reserva=do_reserva,
+        mensagens_outros=total - do_principal - do_reserva,
+        taxa=(
+            None
+            if motivo is not None
+            else round(do_reserva / (do_principal + do_reserva), _CASAS_TAXA)
+        ),
+        motivo_sem_taxa=motivo,
+    )
+
 
 @router.get("/consumo", response_model=ConsumoResponse)
 async def consultar_consumo(
     inicio: datetime | None = None,
     fim: datetime | None = None,
     repo: RepositorioConversas = Depends(get_repositorio),
+    config: Settings = Depends(get_settings),
 ) -> ConsumoResponse:
     """Consumo agregado no período. Sem parâmetros = tudo desde o início.
 
     `inicio` é inclusivo e `fim` exclusivo, em ISO 8601 (UTC quando sem
     offset). O custo real usa o provedor que atendeu cada mensagem; o
     comparativo aplica o volume total ao preço de cada provedor da tabela.
+
+    O bloco `fallback` responde "com que frequência o reserva atendeu" e é
+    **descritivo**: as contagens vêm do banco (quem respondeu de fato), mas os
+    nomes `principal_configurado`/`reserva_configurada` vêm do ambiente de
+    agora — leia a docstring de :class:`FallbackOut` antes de tratar a taxa
+    como característica do período inteiro.
     """
     inicio = _para_utc_naive(inicio)
     fim = _para_utc_naive(fim)
@@ -116,4 +230,5 @@ async def consultar_consumo(
             )
             for nome in sorted(PRECOS)
         ],
+        fallback=_resumir_fallback(linhas, config),
     )

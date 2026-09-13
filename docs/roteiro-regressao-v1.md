@@ -273,21 +273,24 @@ limit, sessões, pendências, LLM mockado, migrações) está verde.
 
 ### O que exige olho humano
 
-Nada do cliente desktop é coberto por teste automatizado — abaixo, o que **só**
-o roteiro acima verifica:
+O cliente desktop já tem suíte (ver "Lacuna parcialmente fechada", abaixo), mas
+ela para na lógica pura — abaixo, o que **só** o roteiro acima verifica:
 
 - **Áudio (F8 inteiro).** Nenhum agente tem alto-falante. Fala, voz pt-BR,
   cancelamento e mudo persistido são exclusivamente humanos.
 - **`abrir_app` em runtime (F7).** Nunca foi executado de verdade — o
   `cargo test`/`check` valida o *capabilities*, mas app abrindo é runtime.
   Maior risco do roteiro.
-- **Toda a UI de erro (F1, F3, F4).** Roteamento banner × bolha, botão "Tentar
-  de novo", classificação por tipo, o único reenvio de 503 e a suspensão do
-  polling em 429 vivem em `App.tsx`/`api.ts`, sem teste.
+- **A fiação da UI de erro (F1, F3, F4).** Roteamento banner × bolha, botão
+  "Tentar de novo", o único reenvio de 503 e a suspensão do polling em 429
+  vivem em `App.tsx`, sem teste. A camada abaixo — classificação por tipo,
+  tradução da falha e `Retry-After`, em `api.ts` — ganhou teste nos PRs #44/#45
+  (ver abaixo); o que falta é a ligação dela com a tela.
 - **Persistência local (F5, F8.5).** O `tauri-plugin-store` só existe no app
   em execução; `%APPDATA%\shogun.json` não é verificável fora dele.
-- **Fuso horário e formatação de data (F6.3).** O sufixo `Z` acrescentado no
-  cliente só se confirma comparando com o relógio.
+- **Fuso horário e formatação de data (F6.3).** A conversão em si tem teste
+  desde o PR #45 (`Conversas.test.ts`); o que só o olho confirma é o valor
+  exibido na lista batendo com o relógio da máquina.
 - **Splash, wordmark animado e `prefers-reduced-motion`.** Fora do roteiro por
   não serem regressão funcional; conferir de olho ao abrir.
 
@@ -297,7 +300,23 @@ partir de `desktop/`) e cobriu `normalizar` e `executarInstrucoes` — inclusive
 regra `text` × `fallback_text`, que o F3 e o F8 exercitam a olho. Parte do que
 este roteiro pedia ao revisor agora falha sozinho no CI.
 
-O que ainda não tem teste, e segue sendo candidato barato para a v1.1:
-`segundosDeRetryAfter`/`traduzirFalhaDeRede` (`lib/api.ts`) e `quando()`
-(`Conversas.tsx`) — as duas primeiras cobrem o F3 e o F4, a última cobre o
-F6.3.
+O candidato barato que este parágrafo apontava — `segundosDeRetryAfter` e
+`traduzirFalhaDeRede` (`lib/api.ts`) e `quando()` (`Conversas.tsx`) — **foi
+coberto** nos PRs #44/#45, por caminhos diferentes:
+
+- `desktop/src/lib/api.test.ts` tem os blocos "traducao de falha de rede
+  (F1.2, F1.5, F3.1)" e "429 e o Retry-After (F4.1)". As duas funções
+  continuam **privadas ao módulo**: quem o teste chama é a API pública
+  (`verificarSaude`, `enviarComando`) com o `fetch` do `tauri-plugin-http`
+  mockado, e as strings cruas do `reqwest` entram como *fixtures*. É cobertura
+  da tradução, não prova de que o plugin emite aquelas strings — e é
+  exatamente por isso que F1.2 e F1.5 continuam valendo a pena a olho (ver a
+  ressalva em `docs/ROADMAP.md`, "Resiliência no desktop").
+- `desktop/src/components/Conversas.test.ts` cobre `quando()` (F6.3), com o
+  sufixo `Z`, o corte local do dia e a virada da meia-noite; `quando` é
+  exportado de `Conversas.tsx` para o teste poder chamá-lo direto.
+
+O que continua sem teste automatizado e só o roteiro alcança é a **fiação**:
+`App.tsx` — roteamento banner × bolha, botão "Tentar de novo", o reenvio único
+do 503, a suspensão do polling em 429 — e tudo que depende de runtime (áudio,
+`abrir_app`, `tauri-plugin-store`).
