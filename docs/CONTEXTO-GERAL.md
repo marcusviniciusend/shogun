@@ -162,9 +162,10 @@ Fluxo:
 
 Rotas de leitura, todas atrás do mesmo Bearer: `GET /pendencias` (painel, sem
 gastar LLM), `GET /sessoes` e `GET /sessoes/{id}/mensagens` (histórico de
-conversas) e `GET /consumo` (tokens e custo por provedor, medição gravada em
-`messages_uso`). Rate limit por token (janela deslizante de 60 s, baldes
-separados para comando e leitura; estouro = 429 + `Retry-After`).
+conversas) e `GET /consumo` (tokens, custo por provedor e taxa de acionamento
+do fallback, tudo derivado de `messages_uso`). Rate limit por token (janela
+deslizante de 60 s, baldes separados para comando e leitura; estouro = 429 +
+`Retry-After`).
 
 Duas propriedades que o código já pratica e que os agentes futuros devem manter:
 **falha de integração externa nunca derruba o comando** (vira
@@ -399,7 +400,9 @@ configurável por variável de ambiente.
   `SHOGUN_LLM_PROVIDER=ollama` + `SHOGUN_LLM_FALLBACK_PROVIDER=deepseek`.
 - **Fallback vale a métrica, além da resiliência.** A frequência com que o
   fallback é acionado é justamente como avaliar um modelo local candidato: cada
-  acionamento é um JSON fora do schema.
+  acionamento é um JSON fora do schema. Desde o PR #48 essa frequência é um
+  número lido do bloco `fallback` do `GET /consumo`, não uma impressão colhida
+  no log (ver 4.2).
 
 ---
 
@@ -553,6 +556,26 @@ Candidatos comparados em `server/README.md` (VRAM em Q4_K_M, sem contar contexto
 degradar sob decodificação restrita. A gramática garante a **forma**, não a
 **semântica**. Regra prática de avaliação: rodar **com fallback ligado** e medir
 a frequência com que ele é acionado. Trocar de modelo é só `OLLAMA_MODEL`.
+
+Desde o PR #48 essa medição tem instrumento próprio: o bloco `fallback` do
+`GET /consumo` (`app/api/consumo.py`, documentado em `server/README.md`).
+`taxa` é `mensagens_reserva / (mensagens_principal + mensagens_reserva)`,
+derivada de `messages_uso` — cada linha já guarda o provedor que de fato
+respondeu, e o `FallbackLLMProvider` não sobrescreve esse nome. Não há coluna
+nova nem estado novo; o log do `uvicorn` continua registrando cada acionamento,
+mas deixou de ser o único meio de contá-los.
+
+O bloco recusa responder quando não dá para calcular honestamente: `taxa` vem
+`null` e o motivo vem em código — `sem_reserva_configurada` (não há reserva
+para medir), `sem_mensagens_do_par` (denominador zero no período) e
+`provedor_nao_registra_uso`, que é o caso a lembrar aqui: o `deterministico`
+nunca grava uso, então o par que o inclui não produz taxa — zero linhas dele
+significaria ausência de registro, não ausência de acionamento. O par de
+avaliação do modelo local (`ollama` + um provedor de nuvem) grava os dois lados
+e produz taxa normalmente. A leitura é **descritiva**: as contagens vêm do
+banco, mas `principal_configurado`/`reserva_configurada` vêm do ambiente de
+agora — se a configuração mudou dentro da janela, `mensagens_outros > 0` é o
+sinal.
 
 *Nota de contexto de máquina: a GPU disponível é uma RTX 4050 Laptop com 6 GB de
 VRAM — o que coloca os candidatos de 12–14 B (`mistral-nemo:12b`,
