@@ -1,7 +1,17 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import samuraiSprite from "../assets/samurai-run7.png";
+import {
+  criarControleDitado,
+  podeGravar,
+  rotuloBotao,
+  statusDitado,
+  type EstadoDitado,
+  type Transcritor,
+} from "../lib/ditado";
+import { iniciarCaptura } from "../lib/microfone";
 import type { MensagemChat } from "../lib/types";
+import { calar } from "../lib/voz";
 
 /**
  * Selo do Shogun — o 将 carimbado ao lado da fala dele.
@@ -26,6 +36,12 @@ interface Props {
   onEnviar: (texto: string) => void;
   /** Reenvia o comando guardado na bolha de erro de indice `indice`. */
   onReenviar: (indice: number, texto: string) => void;
+  /**
+   * Motor de STT injetado (ver `lib/ditado.ts`). AUSENTE = sem botao de
+   * falar — o chat continua o de sempre. A fiacao real com `lib/stt.ts`
+   * acontece em App.tsx quando a branch do motor mergear.
+   */
+  transcritor?: Transcritor;
 }
 
 export function Chat({
@@ -34,9 +50,46 @@ export function Chat({
   bloqueado = false,
   onEnviar,
   onReenviar,
+  transcritor,
 }: Props) {
   const [texto, setTexto] = useState("");
   const fimRef = useRef<HTMLDivElement>(null);
+
+  // ---- ditado (push-to-talk). Toda a decisao vive em lib/ditado.ts; aqui e
+  // so fiacao de eventos de ponteiro/teclado para o controlador.
+  const [estadoDitado, setEstadoDitado] = useState<EstadoDitado>("ocioso");
+  const [erroDitado, setErroDitado] = useState<string | null>(null);
+  // `onEnviar` muda a cada render do App; o controlador e criado uma vez —
+  // a ref garante que o texto transcrito caia sempre no handler atual.
+  const enviarRef = useRef(onEnviar);
+  enviarRef.current = onEnviar;
+  const controle = useMemo(
+    () =>
+      transcritor
+        ? criarControleDitado(
+            { calar, iniciarCaptura, transcritor },
+            {
+              aoEstado: setEstadoDitado,
+              // O texto transcrito entra NO MESMO fluxo da mensagem digitada.
+              aoTexto: (t) => enviarRef.current(t),
+              aoErro: setErroDitado,
+            },
+          )
+        : null,
+    [transcritor],
+  );
+  // Desmontar no meio de uma gravacao nao pode deixar microfone aberto.
+  useEffect(() => () => controle?.cancelar(), [controle]);
+
+  function pressionarFalar() {
+    if (!controle || !podeGravar(estadoDitado, carregando, bloqueado)) return;
+    setErroDitado(null);
+    void controle.iniciar();
+  }
+
+  function soltarFalar() {
+    void controle?.parar();
+  }
 
   useEffect(() => {
     fimRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -120,10 +173,64 @@ export function Chat({
           }
           disabled={carregando || bloqueado}
         />
+        {controle && (
+          /*
+            Push-to-talk: segurar grava, soltar transcreve e envia. Os eventos
+            de ponteiro cobrem mouse e toque; o par keydown/keyup cobre teclado
+            (segurar espaco). O capture prende o pointerup mesmo se o cursor
+            sair do botao antes de soltar.
+          */
+          <button
+            type="button"
+            className={`chat-falar${
+              estadoDitado !== "ocioso" ? ` ${estadoDitado}` : ""
+            }`}
+            aria-label={rotuloBotao(estadoDitado)}
+            title={rotuloBotao(estadoDitado)}
+            aria-pressed={estadoDitado === "gravando"}
+            disabled={
+              estadoDitado === "transcrevendo" ||
+              (estadoDitado === "ocioso" && (carregando || bloqueado))
+            }
+            onPointerDown={(e) => {
+              // So botao principal; preventDefault mantem o foco no input.
+              if (e.button !== 0) return;
+              e.preventDefault();
+              e.currentTarget.setPointerCapture(e.pointerId);
+              pressionarFalar();
+            }}
+            onPointerUp={() => soltarFalar()}
+            onPointerCancel={() => controle.cancelar()}
+            onKeyDown={(e) => {
+              if ((e.key === " " || e.key === "Enter") && !e.repeat) {
+                e.preventDefault();
+                pressionarFalar();
+              }
+            }}
+            onKeyUp={(e) => {
+              if (e.key === " " || e.key === "Enter") {
+                e.preventDefault();
+                soltarFalar();
+              }
+            }}
+          >
+            <span aria-hidden>声</span>
+          </button>
+        )}
         <button type="submit" disabled={carregando || bloqueado || !texto.trim()}>
           {carregando ? "Aguardando…" : "Enviar"}
         </button>
       </form>
+      {controle && (statusDitado(estadoDitado) !== null || erroDitado) && (
+        <p
+          className={`chat-ditado-status${
+            erroDitado && estadoDitado === "ocioso" ? " erro" : ""
+          }`}
+          role="status"
+        >
+          {statusDitado(estadoDitado) ?? erroDitado}
+        </p>
+      )}
     </section>
   );
 }
