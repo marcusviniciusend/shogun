@@ -1,36 +1,20 @@
 /**
- * Ditado — o fluxo de push-to-talk por cima da captura (`lib/microfone.ts`):
- * segurar o botao grava, soltar transcreve, o texto entra no MESMO caminho da
- * mensagem digitada (`POST /comando`). Decisoes aprovadas em
- * docs/stt-desktop-design.md §5/§8.
+ * Ditado — o fluxo de push-to-talk: segurar o botao grava, soltar transcreve,
+ * o texto entra no MESMO caminho da mensagem digitada (`POST /comando`).
+ * Decisoes aprovadas em docs/stt-desktop-design.md §5/§8.
  *
- * A COSTURA com o motor de STT e o tipo `Transcritor`: esta branch nao
- * conhece `lib/stt.ts` (branch paralela) — quem monta o app injeta a funcao.
- * A fiacao final (`import { transcrever } from "./lib/stt"`) e uma
- * micro-branch depois que as duas mergearem; ate la, o modo dev usa o
- * `transcritorDeDesenvolvimento` abaixo e o build de producao fica sem botao.
+ * A maquina de estados (`ocioso → gravando → transcrevendo`, com a fase
+ * interna `abrindo` para a corrida do push-to-talk) sobreviveu inteira a
+ * troca da captura. O que mudou foi so o que ela aciona: antes um objeto
+ * `Captura` do `lib/microfone.ts` (getUserMedia + AudioWorklet no WebView2),
+ * agora os comandos Tauri de `lib/stt.ts` — o microfone e o whisper vivem no
+ * mesmo processo Rust e o PCM nunca chega ate aqui.
  *
  * Padrao dos modulos vizinhos (`falhas.ts`, `telas.ts`): quem DECIDE e este
  * modulo, coberto por vitest com dependencias injetadas; o componente so faz
- * fiacao de eventos e estado visual.
+ * fiacao de eventos e estado visual. As deps continuam injetadas — e o que
+ * mantem estes testes livres de mock do Tauri.
  */
-import type { Captura } from "./microfone";
-import {
-  CapturaIndisponivelError,
-  TAXA_ALVO,
-  duracaoSegundos,
-  picoAbsoluto,
-} from "./microfone";
-
-/**
- * A assinatura do motor de STT — o contrato da costura entre as branches.
- *
- * `pcm`: `Float32Array` mono a `TAXA_ALVO` (16 kHz), amostras em [-1, 1] —
- * exatamente o que `Captura.parar()` devolve. Devolve o texto transcrito
- * (vazio = nada reconhecido, nada e enviado); falha do motor deve virar
- * `throw`, que o fluxo mostra como erro local e volta ao ocioso.
- */
-export type Transcritor = (pcm: Float32Array) => Promise<string>;
 
 /**
  * Os tres estados visiveis do ditado (§5.2 do desenho): ocioso, gravando
@@ -80,33 +64,49 @@ export function statusDitado(estado: EstadoDitado): string | null {
 }
 
 /**
- * Traduz a falha de abertura do microfone para quem esta na tela. A recusa de
- * permissao aponta o caminho da chave de privacidade do Windows (§3.3 do
- * desenho): o tratamento e UX, nao codigo de permissao.
+ * Uma falha do ciclo, ja pronta para a tela.
+ *
+ * `modeloAusente` sai separado do texto de proposito: esse caso NAO e um erro
+ * comum, e o gatilho da oferta de download do modelo (~466 MB). A UI precisa
+ * distinguir "deu errado, tente de novo" de "falta baixar o motor" sem ler a
+ * mensagem.
  */
-export function mensagemErroCaptura(e: unknown): string {
-  if (e instanceof CapturaIndisponivelError) {
-    return "Este WebView não oferece captura de áudio — atualize o WebView2.";
-  }
-  const nome =
-    typeof e === "object" && e !== null && "name" in e
-      ? (e as { name: unknown }).name
-      : null;
-  switch (nome) {
-    case "NotAllowedError":
-    case "SecurityError":
-      return (
-        "Acesso ao microfone negado. Verifique Configurações do Windows → " +
-        "Privacidade e segurança → Microfone."
-      );
-    case "NotFoundError":
-    case "OverconstrainedError":
-      return "Nenhum microfone encontrado.";
-    case "NotReadableError":
-      return "O microfone está em uso por outro aplicativo.";
-    default:
-      return "Não consegui acessar o microfone.";
-  }
+export interface FalhaDitado {
+  mensagem: string;
+  modeloAusente: boolean;
+}
+
+/**
+ * A forma minima de um erro vindo do Rust (`ErroStt` de `lib/stt.ts`).
+ *
+ * Reconhecida por pato, e nao por `instanceof`, para que este modulo nao
+ * importe `lib/stt.ts` — importa-lo arrastaria `@tauri-apps/api` para dentro
+ * de todo teste de ditado, e a injecao de dependencias existe justamente para
+ * evitar isso.
+ */
+function erroDoMotor(e: unknown): { tipo: string; mensagem: string } | null {
+  if (typeof e !== "object" || e === null) return null;
+  const { tipo, message } = e as { tipo?: unknown; message?: unknown };
+  if (typeof tipo !== "string" || typeof message !== "string") return null;
+  return { tipo, mensagem: message };
+}
+
+/**
+ * Traduz a falha do ciclo para quem esta na tela.
+ *
+ * O Rust ja devolve mensagem exibivel (portugues, sem caminho de disco, e
+ * apontando a chave de privacidade do Windows quando o caso e permissao
+ * negada) — repetir esse texto aqui seria manter duas versoes da mesma
+ * frase. Entao o funil e: erro do motor usa a mensagem dele; qualquer outra
+ * coisa (falha de IPC, bug de fiacao) cai na frase generica recebida.
+ */
+export function mensagemErroDitado(e: unknown, generica: string): FalhaDitado {
+  const erro = erroDoMotor(e);
+  if (erro === null) return { mensagem: generica, modeloAusente: false };
+  return {
+    mensagem: erro.mensagem,
+    modeloAusente: erro.tipo === "modelo_ausente",
+  };
 }
 
 /** Texto vazio ou so espaco nao vira comando — devolve `null` para nao enviar. */
@@ -121,10 +121,15 @@ export function textoUtil(bruto: string): string | null {
 export interface DepsDitado {
   /** `calar` de `lib/voz.ts`: abrir o microfone SEMPRE cala o TTS (§5.3). */
   calar: () => void;
-  /** `iniciarCaptura` de `lib/microfone.ts`. */
-  iniciarCaptura: () => Promise<Captura>;
-  /** O motor de STT injetado — a costura. */
-  transcritor: Transcritor;
+  /** `iniciarGravacao` de `lib/stt.ts`: abre o microfone no Rust. */
+  iniciarGravacao: () => Promise<unknown>;
+  /**
+   * `pararGravacaoETranscrever` de `lib/stt.ts`: fecha o microfone e devolve
+   * a fala ja transcrita. Um passo so porque o PCM nao existe deste lado.
+   */
+  pararETranscrever: () => Promise<string>;
+  /** `cancelarGravacao` de `lib/stt.ts`: fecha descartando o audio. */
+  cancelarGravacao: () => void;
 }
 
 /** Callbacks para o componente refletir o fluxo na tela. */
@@ -133,7 +138,7 @@ export interface SinaisDitado {
   /** Texto pronto para entrar no fluxo de envio (nunca vazio). */
   aoTexto: (texto: string) => void;
   /** Falha de captura ou de transcricao, ja traduzida para exibicao. */
-  aoErro: (mensagem: string) => void;
+  aoErro: (falha: FalhaDitado) => void;
 }
 
 export interface ControleDitado {
@@ -149,11 +154,13 @@ export interface ControleDitado {
  * Cria o controlador de uma sessao de ditado. Um por componente basta: o
  * estado interno volta ao ocioso apos cada ciclo.
  *
- * A fase "abrindo" cobre a corrida real do push-to-talk: o `getUserMedia`
- * e assincrono (pode ate abrir prompt de permissao) e o usuario pode soltar
+ * A fase "abrindo" cobre a corrida real do push-to-talk: abrir o dispositivo
+ * e assincrono (o cpal negocia formato com o WASAPI) e o usuario pode soltar
  * o botao antes de ele resolver. Soltar ou cancelar nesse intervalo DESCARTA
  * a captura — um toque rapido demais nao gravou nada que preste, e tratar
- * como desistencia evita mandar ruido de meio segundo para o motor.
+ * como desistencia evita mandar ruido de meio segundo para o motor. Descartar
+ * aqui significa chamar `cancelarGravacao`: o dispositivo JA abriu do lado
+ * Rust e ficaria aberto se ninguem o fechasse.
  */
 export function criarControleDitado(
   deps: DepsDitado,
@@ -161,7 +168,6 @@ export function criarControleDitado(
 ): ControleDitado {
   type Fase = "ocioso" | "abrindo" | "gravando" | "transcrevendo";
   let fase: Fase = "ocioso";
-  let captura: Captura | null = null;
   let desistiuAoAbrir = false;
 
   return {
@@ -171,21 +177,19 @@ export function criarControleDitado(
       desistiuAoAbrir = false;
       // O eco morre por construcao: o Shogun cala ANTES de o mic abrir.
       deps.calar();
-      let aberta: Captura;
       try {
-        aberta = await deps.iniciarCaptura();
+        await deps.iniciarGravacao();
       } catch (e) {
         console.error("[shogun] abertura do microfone falhou:", e);
         fase = "ocioso";
-        sinais.aoErro(mensagemErroCaptura(e));
+        sinais.aoErro(mensagemErroDitado(e, "Não consegui acessar o microfone."));
         return;
       }
       if (desistiuAoAbrir) {
-        aberta.cancelar();
+        deps.cancelarGravacao();
         fase = "ocioso";
         return;
       }
-      captura = aberta;
       fase = "gravando";
       sinais.aoEstado("gravando");
     },
@@ -195,18 +199,15 @@ export function criarControleDitado(
         desistiuAoAbrir = true;
         return;
       }
-      if (fase !== "gravando" || captura === null) return;
-      const gravacao = captura;
-      captura = null;
+      if (fase !== "gravando") return;
       fase = "transcrevendo";
       sinais.aoEstado("transcrevendo");
       try {
-        const pcm = await gravacao.parar();
-        const texto = textoUtil(await deps.transcritor(pcm));
+        const texto = textoUtil(await deps.pararETranscrever());
         if (texto !== null) sinais.aoTexto(texto);
       } catch (e) {
         console.error("[shogun] transcricao falhou:", e);
-        sinais.aoErro("Não consegui transcrever o áudio.");
+        sinais.aoErro(mensagemErroDitado(e, "Não consegui transcrever o áudio."));
       } finally {
         fase = "ocioso";
         sinais.aoEstado("ocioso");
@@ -218,29 +219,10 @@ export function criarControleDitado(
         desistiuAoAbrir = true;
         return;
       }
-      if (fase !== "gravando" || captura === null) return;
-      captura.cancelar();
-      captura = null;
+      if (fase !== "gravando") return;
+      deps.cancelarGravacao();
       fase = "ocioso";
       sinais.aoEstado("ocioso");
     },
   };
 }
-
-/* -------------------------------------------------------------------- dev */
-
-/**
- * Transcritor provisorio do modo dev, enquanto a costura com `lib/stt.ts`
- * nao acontece: o audio capturado "morre num log" (branch 1 do desenho, §7).
- * Loga duracao e pico no console do WebView2 e devolve vazio — nada e
- * enviado ao servidor. NAO entra no build de producao (ver App.tsx).
- */
-export const transcritorDeDesenvolvimento: Transcritor = async (pcm) => {
-  const duracao = duracaoSegundos(pcm).toFixed(2);
-  const pico = picoAbsoluto(pcm).toFixed(3);
-  console.info(
-    `[shogun] captura: ${pcm.length} amostras @ ${TAXA_ALVO} Hz ` +
-      `(~${duracao}s), pico ${pico} — sem motor de STT nesta branch`,
-  );
-  return "";
-};

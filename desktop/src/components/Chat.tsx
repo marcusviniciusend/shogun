@@ -7,9 +7,12 @@ import {
   rotuloBotao,
   statusDitado,
   type EstadoDitado,
-  type Transcritor,
 } from "../lib/ditado";
-import { iniciarCaptura } from "../lib/microfone";
+import {
+  cancelarGravacao,
+  iniciarGravacao,
+  pararGravacaoETranscrever,
+} from "../lib/stt";
 import type { MensagemChat } from "../lib/types";
 import { calar } from "../lib/voz";
 
@@ -37,11 +40,11 @@ interface Props {
   /** Reenvia o comando guardado na bolha de erro de indice `indice`. */
   onReenviar: (indice: number, texto: string) => void;
   /**
-   * Motor de STT injetado (ver `lib/ditado.ts`). AUSENTE = sem botao de
-   * falar — o chat continua o de sempre. A fiacao real com `lib/stt.ts`
-   * acontece em App.tsx quando a branch do motor mergear.
+   * Ha motor de voz neste ambiente (ver `sttDisponivel` em `lib/stt.ts`)?
+   * FALSO = sem botao de falar — o chat continua o de sempre. E o gate do
+   * push-to-talk: capacidade detectada em runtime, e nao flag de build.
    */
-  transcritor?: Transcritor;
+  ditadoDisponivel?: boolean;
 }
 
 export function Chat({
@@ -50,7 +53,7 @@ export function Chat({
   bloqueado = false,
   onEnviar,
   onReenviar,
-  transcritor,
+  ditadoDisponivel = false,
 }: Props) {
   const [texto, setTexto] = useState("");
   const fimRef = useRef<HTMLDivElement>(null);
@@ -65,18 +68,25 @@ export function Chat({
   enviarRef.current = onEnviar;
   const controle = useMemo(
     () =>
-      transcritor
+      ditadoDisponivel
         ? criarControleDitado(
-            { calar, iniciarCaptura, transcritor },
+            {
+              calar,
+              iniciarGravacao,
+              pararETranscrever: () => pararGravacaoETranscrever(),
+              // `cancelarGravacao` nunca rejeita; o `void` so descarta a
+              // promise, porque cancelar e limpeza e nao tem retorno util.
+              cancelarGravacao: () => void cancelarGravacao(),
+            },
             {
               aoEstado: setEstadoDitado,
               // O texto transcrito entra NO MESMO fluxo da mensagem digitada.
               aoTexto: (t) => enviarRef.current(t),
-              aoErro: setErroDitado,
+              aoErro: (falha) => setErroDitado(falha.mensagem),
             },
           )
         : null,
-    [transcritor],
+    [ditadoDisponivel],
   );
   // Desmontar no meio de uma gravacao nao pode deixar microfone aberto.
   useEffect(() => () => controle?.cancelar(), [controle]);
