@@ -7,9 +7,19 @@ import {
   rotuloBotao,
   statusDitado,
   type EstadoDitado,
-  type Transcritor,
 } from "../lib/ditado";
-import { iniciarCaptura } from "../lib/microfone";
+import {
+  MODELO_STT_PADRAO,
+  baixarModeloStt,
+  cancelarGravacao,
+  formatarProgresso,
+  iniciarGravacao,
+  megabytes,
+  pararGravacaoETranscrever,
+  statusModeloStt,
+  type ProgressoDownloadStt,
+  type StatusModeloStt,
+} from "../lib/stt";
 import type { MensagemChat } from "../lib/types";
 import { calar } from "../lib/voz";
 
@@ -37,11 +47,11 @@ interface Props {
   /** Reenvia o comando guardado na bolha de erro de indice `indice`. */
   onReenviar: (indice: number, texto: string) => void;
   /**
-   * Motor de STT injetado (ver `lib/ditado.ts`). AUSENTE = sem botao de
-   * falar — o chat continua o de sempre. A fiacao real com `lib/stt.ts`
-   * acontece em App.tsx quando a branch do motor mergear.
+   * Ha motor de voz neste ambiente (ver `sttDisponivel` em `lib/stt.ts`)?
+   * FALSO = sem botao de falar — o chat continua o de sempre. E o gate do
+   * push-to-talk: capacidade detectada em runtime, e nao flag de build.
    */
-  transcritor?: Transcritor;
+  ditadoDisponivel?: boolean;
 }
 
 export function Chat({
@@ -50,7 +60,7 @@ export function Chat({
   bloqueado = false,
   onEnviar,
   onReenviar,
-  transcritor,
+  ditadoDisponivel = false,
 }: Props) {
   const [texto, setTexto] = useState("");
   const fimRef = useRef<HTMLDivElement>(null);
@@ -59,27 +69,66 @@ export function Chat({
   // so fiacao de eventos de ponteiro/teclado para o controlador.
   const [estadoDitado, setEstadoDitado] = useState<EstadoDitado>("ocioso");
   const [erroDitado, setErroDitado] = useState<string | null>(null);
+  // Modelo de voz ausente NAO e um erro comum: e a primeira execucao, e o
+  // que falta e um download de algumas centenas de MB. Sai do erro generico
+  // para virar oferta com progresso (ver `FalhaDitado.modeloAusente`).
+  const [modeloStt, setModeloStt] = useState<StatusModeloStt | null>(null);
+  const [baixandoModelo, setBaixandoModelo] = useState(false);
+  const [progressoModelo, setProgressoModelo] =
+    useState<ProgressoDownloadStt | null>(null);
   // `onEnviar` muda a cada render do App; o controlador e criado uma vez —
   // a ref garante que o texto transcrito caia sempre no handler atual.
   const enviarRef = useRef(onEnviar);
   enviarRef.current = onEnviar;
   const controle = useMemo(
     () =>
-      transcritor
+      ditadoDisponivel
         ? criarControleDitado(
-            { calar, iniciarCaptura, transcritor },
+            {
+              calar,
+              iniciarGravacao,
+              pararETranscrever: () => pararGravacaoETranscrever(),
+              // `cancelarGravacao` nunca rejeita; o `void` so descarta a
+              // promise, porque cancelar e limpeza e nao tem retorno util.
+              cancelarGravacao: () => void cancelarGravacao(),
+            },
             {
               aoEstado: setEstadoDitado,
               // O texto transcrito entra NO MESMO fluxo da mensagem digitada.
               aoTexto: (t) => enviarRef.current(t),
-              aoErro: setErroDitado,
+              aoErro: (falha) => {
+                setErroDitado(falha.mensagem);
+                if (falha.modeloAusente) {
+                  setModeloStt((s) => (s === null ? s : { ...s, presente: false }));
+                }
+              },
             },
           )
         : null,
-    [transcritor],
+    [ditadoDisponivel],
   );
   // Desmontar no meio de uma gravacao nao pode deixar microfone aberto.
   useEffect(() => () => controle?.cancelar(), [controle]);
+
+  // Havendo motor, pergunta ao Rust se o modelo ja esta no disco — um stat,
+  // barato. E o que faz a oferta de download aparecer ANTES da primeira
+  // fala, em vez de depois de uma tentativa frustrada.
+  useEffect(() => {
+    if (!ditadoDisponivel) return;
+    let vivo = true;
+    statusModeloStt()
+      .then((s) => {
+        if (vivo) setModeloStt(s);
+      })
+      .catch((e) => {
+        console.error("[shogun] status do modelo de voz falhou:", e);
+      });
+    return () => {
+      vivo = false;
+    };
+  }, [ditadoDisponivel]);
+
+  const modeloAusente = modeloStt !== null && !modeloStt.presente;
 
   function pressionarFalar() {
     if (!controle || !podeGravar(estadoDitado, carregando, bloqueado)) return;
@@ -89,6 +138,27 @@ export function Chat({
 
   function soltarFalar() {
     void controle?.parar();
+  }
+
+  /**
+   * Baixa o modelo de voz — o passo que falta para a PRIMEIRA fala funcionar.
+   * Idempotente e validado por SHA-256 no Rust; aqui so o progresso e o
+   * desfecho aparecem na tela.
+   */
+  async function baixarModelo() {
+    setBaixandoModelo(true);
+    setErroDitado(null);
+    setProgressoModelo(null);
+    try {
+      setModeloStt(await baixarModeloStt(MODELO_STT_PADRAO, setProgressoModelo));
+    } catch (e) {
+      // O Rust ja manda mensagem exibivel; a oferta continua de pe para
+      // quem quiser tentar de novo.
+      setErroDitado(e instanceof Error ? e.message : "O download falhou.");
+    } finally {
+      setBaixandoModelo(false);
+      setProgressoModelo(null);
+    }
   }
 
   useEffect(() => {
@@ -229,6 +299,43 @@ export function Chat({
           role="status"
         >
           {statusDitado(estadoDitado) ?? erroDitado}
+        </p>
+      )}
+      {controle && modeloStt !== null && modeloAusente && (
+        /*
+          Primeira execucao: o motor existe, o modelo ainda nao. Em vez de
+          repetir "deu erro" a cada tentativa, o caminho de saida fica na
+          tela — um botao e uma barra de progresso do download.
+        */
+        <p className="chat-modelo-oferta" role="status">
+          {baixandoModelo ? (
+            <>
+              <span>
+                Baixando o modelo de voz —{" "}
+                {progressoModelo
+                  ? formatarProgresso(progressoModelo)
+                  : "iniciando…"}
+              </span>
+              <progress
+                max={progressoModelo?.total_bytes ?? modeloStt.tamanho_esperado_bytes}
+                value={progressoModelo?.baixado_bytes ?? 0}
+                aria-label="Progresso do download do modelo de voz"
+              />
+            </>
+          ) : (
+            <>
+              <span>
+                A voz precisa do modelo de reconhecimento, baixado uma vez só.
+              </span>
+              <button
+                type="button"
+                className="botao-secundario"
+                onClick={() => void baixarModelo()}
+              >
+                Baixar ({megabytes(modeloStt.tamanho_esperado_bytes)} MB)
+              </button>
+            </>
+          )}
         </p>
       )}
     </section>

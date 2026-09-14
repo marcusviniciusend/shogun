@@ -1,26 +1,29 @@
 /**
  * Testes do fluxo de ditado (push-to-talk).
  *
- * O transcritor aqui e SEMPRE mockado — o motor real (`lib/stt.ts`) e de
- * outra branch, e a costura entre as duas e exatamente a assinatura
- * `Transcritor` exercitada nestes testes. Com captura e transcritor dublados,
- * o ciclo inteiro (segurar → gravar → soltar → transcrever → texto no fluxo
- * de envio) roda no vitest; o que sobra de manual esta no bloco F9 do
- * roteiro.
+ * As dependencias continuam injetadas — agora sao os comandos Tauri de
+ * `lib/stt.ts` (abrir microfone, parar e transcrever, cancelar) em vez do
+ * objeto `Captura` que o extinto `lib/microfone.ts` entregava. E o que mantem
+ * estes testes sem mock de Tauri: o ciclo inteiro (segurar → gravar → soltar
+ * → transcrever → texto no fluxo de envio) roda no vitest, e o que sobra de
+ * manual esta no bloco F9 do roteiro.
+ *
+ * O que o vitest NAO alcanca e o mesmo teto de sempre, so que agora do outro
+ * lado da fronteira: microfone de verdade, permissao do Windows e qualidade
+ * do audio vivem em Rust (`src-tauri/src/microfone.rs`, com a matematica
+ * coberta por `cargo test`).
  */
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   criarControleDitado,
-  mensagemErroCaptura,
+  mensagemErroDitado,
   podeGravar,
   rotuloBotao,
   statusDitado,
   textoUtil,
-  transcritorDeDesenvolvimento,
   type EstadoDitado,
 } from "./ditado";
-import { CapturaIndisponivelError, type Captura } from "./microfone";
 
 /* ------------------------------------------------------------------ puras */
 
@@ -50,36 +53,38 @@ describe("rotulos e status por estado", () => {
   });
 });
 
-describe("mensagemErroCaptura", () => {
-  it("recusa de permissao aponta a chave de privacidade do Windows", () => {
-    const recusa = Object.assign(new Error("x"), { name: "NotAllowedError" });
-    expect(mensagemErroCaptura(recusa)).toContain("Privacidade e segurança");
-    const seguranca = Object.assign(new Error("x"), { name: "SecurityError" });
-    expect(mensagemErroCaptura(seguranca)).toContain("Microfone");
+/** Um erro na forma do `ErroStt` de `lib/stt.ts`, sem importar o modulo. */
+function erroStt(tipo: string, mensagem: string) {
+  return Object.assign(new Error(mensagem), { name: "ErroStt", tipo });
+}
+
+describe("mensagemErroDitado", () => {
+  it("erro do motor aparece com a mensagem que o Rust escreveu", () => {
+    const recusa = erroStt(
+      "microfone",
+      "O Windows negou o acesso ao microfone. Abra Configuracoes > " +
+        "Privacidade e seguranca > Microfone.",
+    );
+    const falha = mensagemErroDitado(recusa, "generica");
+    expect(falha.mensagem).toContain("Privacidade e seguranca");
+    expect(falha.modeloAusente).toBe(false);
   });
 
-  it("sem microfone e mic ocupado tem frases proprias", () => {
-    const semMic = Object.assign(new Error("x"), { name: "NotFoundError" });
-    expect(mensagemErroCaptura(semMic)).toBe("Nenhum microfone encontrado.");
-    const ocupado = Object.assign(new Error("x"), { name: "NotReadableError" });
-    expect(mensagemErroCaptura(ocupado)).toBe(
-      "O microfone está em uso por outro aplicativo.",
+  it("modelo_ausente e sinalizado a parte — e oferta de download, nao erro", () => {
+    const falha = mensagemErroDitado(
+      erroStt("modelo_ausente", 'O modelo de voz "small" ainda nao foi baixado.'),
+      "generica",
     );
+    expect(falha.modeloAusente).toBe(true);
+    expect(falha.mensagem).toContain("nao foi baixado");
   });
 
-  it("API ausente pede atualizacao do WebView2", () => {
-    expect(mensagemErroCaptura(new CapturaIndisponivelError("teste"))).toContain(
-      "WebView2",
-    );
-  });
-
-  it("qualquer outra coisa cai na frase generica", () => {
-    expect(mensagemErroCaptura(new Error("boom"))).toBe(
-      "Não consegui acessar o microfone.",
-    );
-    expect(mensagemErroCaptura(undefined)).toBe(
-      "Não consegui acessar o microfone.",
-    );
+  it("erro fora do contrato cai na frase generica de quem chamou", () => {
+    for (const cru of [new Error("boom"), "string crua", undefined, null]) {
+      expect(mensagemErroDitado(cru, "Não consegui acessar o microfone.")).toEqual(
+        { mensagem: "Não consegui acessar o microfone.", modeloAusente: false },
+      );
+    }
   });
 });
 
@@ -93,10 +98,12 @@ describe("textoUtil", () => {
 
 /* ------------------------------------------------------------- controlador */
 
-function capturaFalsa(pcm = new Float32Array([0.1, 0.2])) {
+function depsFalsas(texto = "abrir o spotify") {
   return {
-    parar: vi.fn(() => Promise.resolve(pcm)),
-    cancelar: vi.fn(() => {}),
+    calar: vi.fn(),
+    iniciarGravacao: vi.fn(() => Promise.resolve({ taxa_hz: 48_000, canais: 1 })),
+    pararETranscrever: vi.fn(() => Promise.resolve(texto)),
+    cancelarGravacao: vi.fn(),
   };
 }
 
@@ -104,7 +111,7 @@ function sinaisFalsos() {
   return {
     aoEstado: vi.fn((_estado: EstadoDitado) => {}),
     aoTexto: vi.fn((_texto: string) => {}),
-    aoErro: vi.fn((_mensagem: string) => {}),
+    aoErro: vi.fn((_falha: { mensagem: string; modeloAusente: boolean }) => {}),
   };
 }
 
@@ -116,36 +123,25 @@ beforeEach(() => {
 
 describe("criarControleDitado — fluxo feliz", () => {
   it("cala o TTS ANTES de abrir o microfone, sempre", async () => {
-    const calar = vi.fn();
-    const iniciarCaptura = vi.fn(() => Promise.resolve(capturaFalsa()));
-    const controle = criarControleDitado(
-      { calar, iniciarCaptura, transcritor: vi.fn(async (_pcm: Float32Array) => "") },
-      sinaisFalsos(),
-    );
+    const deps = depsFalsas();
+    const controle = criarControleDitado(deps, sinaisFalsos());
 
     await controle.iniciar();
 
-    expect(calar).toHaveBeenCalledTimes(1);
-    const ordemCalar = calar.mock.invocationCallOrder[0];
-    const ordemCaptura = iniciarCaptura.mock.invocationCallOrder[0];
-    expect(ordemCalar).toBeLessThan(ordemCaptura);
+    expect(deps.calar).toHaveBeenCalledTimes(1);
+    expect(deps.calar.mock.invocationCallOrder[0]).toBeLessThan(
+      deps.iniciarGravacao.mock.invocationCallOrder[0],
+    );
   });
 
   it("grava, transcreve e entrega o texto aparado ao fluxo de envio", async () => {
-    const pcm = new Float32Array([0.5]);
-    const captura = capturaFalsa(pcm);
-    const transcritor = vi.fn(() => Promise.resolve("  abrir o spotify  "));
+    const deps = depsFalsas("  abrir o spotify  ");
     const sinais = sinaisFalsos();
-    const controle = criarControleDitado(
-      { calar: vi.fn(), iniciarCaptura: async () => captura, transcritor },
-      sinais,
-    );
+    const controle = criarControleDitado(deps, sinais);
 
     await controle.iniciar();
     await controle.parar();
 
-    // O transcritor recebeu EXATAMENTE o PCM que a captura entregou.
-    expect(transcritor).toHaveBeenCalledWith(pcm);
     expect(sinais.aoTexto).toHaveBeenCalledWith("abrir o spotify");
     expect(sinais.aoErro).not.toHaveBeenCalled();
     // Estados na ordem do desenho: gravando → transcrevendo → ocioso.
@@ -158,14 +154,7 @@ describe("criarControleDitado — fluxo feliz", () => {
 
   it("transcricao vazia nao envia nada e volta ao ocioso", async () => {
     const sinais = sinaisFalsos();
-    const controle = criarControleDitado(
-      {
-        calar: vi.fn(),
-        iniciarCaptura: async () => capturaFalsa(),
-        transcritor: async () => "   ",
-      },
-      sinais,
-    );
+    const controle = criarControleDitado(depsFalsas("   "), sinais);
 
     await controle.iniciar();
     await controle.parar();
@@ -178,22 +167,21 @@ describe("criarControleDitado — fluxo feliz", () => {
 
 describe("criarControleDitado — falhas", () => {
   it("recusa do microfone vira mensagem local e o estado nem sai do ocioso", async () => {
-    const sinais = sinaisFalsos();
-    const recusa = Object.assign(new Error("x"), { name: "NotAllowedError" });
-    const controle = criarControleDitado(
-      {
-        calar: vi.fn(),
-        iniciarCaptura: () => Promise.reject(recusa),
-        transcritor: vi.fn(async (_pcm: Float32Array) => ""),
-      },
-      sinais,
+    const deps = depsFalsas();
+    const recusa = erroStt(
+      "microfone",
+      "O Windows negou o acesso ao microfone. Abra Configuracoes > Privacidade.",
     );
+    deps.iniciarGravacao.mockRejectedValue(recusa);
+    const sinais = sinaisFalsos();
+    const controle = criarControleDitado(deps, sinais);
 
     await controle.iniciar();
 
-    expect(sinais.aoErro).toHaveBeenCalledWith(
-      expect.stringContaining("Privacidade"),
-    );
+    expect(sinais.aoErro).toHaveBeenCalledWith({
+      mensagem: recusa.message,
+      modeloAusente: false,
+    });
     expect(sinais.aoEstado).not.toHaveBeenCalled();
     // A causa crua foi para o console, prefixada — e o que o roteiro manda olhar.
     expect(console.error).toHaveBeenCalledWith(
@@ -202,149 +190,128 @@ describe("criarControleDitado — falhas", () => {
     );
   });
 
-  it("falha do transcritor vira erro local e volta ao ocioso", async () => {
+  it("falha do motor vira erro local e volta ao ocioso", async () => {
+    const deps = depsFalsas();
+    deps.pararETranscrever.mockRejectedValue(new Error("motor caiu"));
     const sinais = sinaisFalsos();
-    const controle = criarControleDitado(
-      {
-        calar: vi.fn(),
-        iniciarCaptura: async () => capturaFalsa(),
-        transcritor: () => Promise.reject(new Error("motor caiu")),
-      },
-      sinais,
+    const controle = criarControleDitado(deps, sinais);
+
+    await controle.iniciar();
+    await controle.parar();
+
+    expect(sinais.aoErro).toHaveBeenCalledWith({
+      mensagem: "Não consegui transcrever o áudio.",
+      modeloAusente: false,
+    });
+    expect(sinais.aoTexto).not.toHaveBeenCalled();
+    expect(sinais.aoEstado).toHaveBeenLastCalledWith("ocioso");
+  });
+
+  it("modelo ausente chega a UI marcado como oferta de download", async () => {
+    const deps = depsFalsas();
+    deps.pararETranscrever.mockRejectedValue(
+      erroStt("modelo_ausente", 'O modelo de voz "small" ainda nao foi baixado.'),
     );
+    const sinais = sinaisFalsos();
+    const controle = criarControleDitado(deps, sinais);
 
     await controle.iniciar();
     await controle.parar();
 
     expect(sinais.aoErro).toHaveBeenCalledWith(
-      "Não consegui transcrever o áudio.",
+      expect.objectContaining({ modeloAusente: true }),
     );
-    expect(sinais.aoTexto).not.toHaveBeenCalled();
-    expect(sinais.aoEstado).toHaveBeenLastCalledWith("ocioso");
-  });
-
-  it("falha do parar da captura tambem vira erro local, sem texto", async () => {
-    const captura = capturaFalsa();
-    captura.parar.mockRejectedValue(new Error("stream morreu"));
-    const transcritor = vi.fn(async (_pcm: Float32Array) => "");
-    const sinais = sinaisFalsos();
-    const controle = criarControleDitado(
-      { calar: vi.fn(), iniciarCaptura: async () => captura, transcritor },
-      sinais,
-    );
-
-    await controle.iniciar();
-    await controle.parar();
-
-    expect(transcritor).not.toHaveBeenCalled();
-    expect(sinais.aoErro).toHaveBeenCalledTimes(1);
     expect(sinais.aoEstado).toHaveBeenLastCalledWith("ocioso");
   });
 });
 
 describe("criarControleDitado — corridas do push-to-talk", () => {
-  it("soltar ANTES de o mic abrir descarta a captura — toque rapido e desistencia", async () => {
-    const captura = capturaFalsa();
-    let abrir!: (c: Captura) => void;
-    const pendente = new Promise<Captura>((resolve) => {
-      abrir = resolve;
-    });
-    const transcritor = vi.fn(async (_pcm: Float32Array) => "");
-    const sinais = sinaisFalsos();
-    const controle = criarControleDitado(
-      { calar: vi.fn(), iniciarCaptura: () => pendente, transcritor },
-      sinais,
+  it("soltar ANTES de o mic abrir CANCELA no Rust — o dispositivo ja abriu la", async () => {
+    const deps = depsFalsas();
+    let abrir!: () => void;
+    deps.iniciarGravacao.mockReturnValue(
+      new Promise((resolve) => {
+        abrir = () => resolve({ taxa_hz: 48_000, canais: 1 });
+      }),
     );
+    const sinais = sinaisFalsos();
+    const controle = criarControleDitado(deps, sinais);
 
     const iniciando = controle.iniciar();
-    await controle.parar(); // soltou antes do getUserMedia resolver
-    abrir(captura);
+    await controle.parar(); // soltou antes de o dispositivo abrir
+    abrir();
     await iniciando;
 
-    expect(captura.cancelar).toHaveBeenCalledTimes(1);
-    expect(transcritor).not.toHaveBeenCalled();
+    expect(deps.cancelarGravacao).toHaveBeenCalledTimes(1);
+    expect(deps.pararETranscrever).not.toHaveBeenCalled();
     expect(sinais.aoEstado).not.toHaveBeenCalledWith("gravando");
   });
 
   it("cancelar enquanto abre tambem descarta", async () => {
-    const captura = capturaFalsa();
-    let abrir!: (c: Captura) => void;
-    const pendente = new Promise<Captura>((resolve) => {
-      abrir = resolve;
-    });
-    const sinais = sinaisFalsos();
-    const controle = criarControleDitado(
-      { calar: vi.fn(), iniciarCaptura: () => pendente, transcritor: vi.fn(async (_pcm: Float32Array) => "") },
-      sinais,
+    const deps = depsFalsas();
+    let abrir!: () => void;
+    deps.iniciarGravacao.mockReturnValue(
+      new Promise((resolve) => {
+        abrir = () => resolve({ taxa_hz: 48_000, canais: 1 });
+      }),
     );
+    const sinais = sinaisFalsos();
+    const controle = criarControleDitado(deps, sinais);
 
     const iniciando = controle.iniciar();
     controle.cancelar();
-    abrir(captura);
+    abrir();
     await iniciando;
 
-    expect(captura.cancelar).toHaveBeenCalledTimes(1);
+    expect(deps.cancelarGravacao).toHaveBeenCalledTimes(1);
     expect(sinais.aoEstado).not.toHaveBeenCalled();
   });
 
   it("cancelar durante a gravacao descarta sem transcrever", async () => {
-    const captura = capturaFalsa();
-    const transcritor = vi.fn(async (_pcm: Float32Array) => "");
+    const deps = depsFalsas();
     const sinais = sinaisFalsos();
-    const controle = criarControleDitado(
-      { calar: vi.fn(), iniciarCaptura: async () => captura, transcritor },
-      sinais,
-    );
+    const controle = criarControleDitado(deps, sinais);
 
     await controle.iniciar();
     controle.cancelar();
 
-    expect(captura.cancelar).toHaveBeenCalledTimes(1);
-    expect(captura.parar).not.toHaveBeenCalled();
-    expect(transcritor).not.toHaveBeenCalled();
+    expect(deps.cancelarGravacao).toHaveBeenCalledTimes(1);
+    expect(deps.pararETranscrever).not.toHaveBeenCalled();
     expect(sinais.aoEstado).toHaveBeenLastCalledWith("ocioso");
   });
 
   it("iniciar de novo durante a gravacao e no-op — nao abre segundo mic", async () => {
-    const iniciarCaptura = vi.fn(() => Promise.resolve(capturaFalsa()));
-    const controle = criarControleDitado(
-      { calar: vi.fn(), iniciarCaptura, transcritor: vi.fn(async (_pcm: Float32Array) => "") },
-      sinaisFalsos(),
-    );
+    const deps = depsFalsas();
+    const controle = criarControleDitado(deps, sinaisFalsos());
 
     await controle.iniciar();
     await controle.iniciar();
 
-    expect(iniciarCaptura).toHaveBeenCalledTimes(1);
+    expect(deps.iniciarGravacao).toHaveBeenCalledTimes(1);
   });
 
   it("parar sem estar gravando e no-op", async () => {
+    const deps = depsFalsas();
     const sinais = sinaisFalsos();
-    const controle = criarControleDitado(
-      {
-        calar: vi.fn(),
-        iniciarCaptura: async () => capturaFalsa(),
-        transcritor: vi.fn(async (_pcm: Float32Array) => ""),
-      },
-      sinais,
-    );
+    const controle = criarControleDitado(deps, sinais);
 
     await controle.parar();
 
+    expect(deps.pararETranscrever).not.toHaveBeenCalled();
     expect(sinais.aoEstado).not.toHaveBeenCalled();
     expect(sinais.aoErro).not.toHaveBeenCalled();
   });
 
+  it("cancelar sem estar gravando nao chama o Rust a toa", () => {
+    const deps = depsFalsas();
+    criarControleDitado(deps, sinaisFalsos()).cancelar();
+    expect(deps.cancelarGravacao).not.toHaveBeenCalled();
+  });
+
   it("ciclo novo depois de um completo funciona — o controlador se rearma", async () => {
+    const deps = depsFalsas("de novo");
     const sinais = sinaisFalsos();
-    const controle = criarControleDitado(
-      {
-        calar: vi.fn(),
-        iniciarCaptura: async () => capturaFalsa(),
-        transcritor: async () => "de novo",
-      },
-      sinais,
-    );
+    const controle = criarControleDitado(deps, sinais);
 
     await controle.iniciar();
     await controle.parar();
@@ -353,15 +320,17 @@ describe("criarControleDitado — corridas do push-to-talk", () => {
 
     expect(sinais.aoTexto).toHaveBeenCalledTimes(2);
   });
-});
 
-describe("transcritorDeDesenvolvimento", () => {
-  it("loga a captura com o prefixo [shogun] e devolve vazio — nada vai ao servidor", async () => {
-    const info = vi.spyOn(console, "info").mockImplementation(() => {});
-    const texto = await transcritorDeDesenvolvimento(
-      new Float32Array([0.25, -0.5]),
-    );
-    expect(texto).toBe("");
-    expect(info).toHaveBeenCalledWith(expect.stringContaining("[shogun]"));
+  it("um ciclo que falhou na abertura nao trava o proximo", async () => {
+    const deps = depsFalsas();
+    deps.iniciarGravacao.mockRejectedValueOnce(erroStt("microfone", "ocupado"));
+    const sinais = sinaisFalsos();
+    const controle = criarControleDitado(deps, sinais);
+
+    await controle.iniciar();
+    await controle.iniciar();
+    await controle.parar();
+
+    expect(sinais.aoTexto).toHaveBeenCalledTimes(1);
   });
 });

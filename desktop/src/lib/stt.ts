@@ -1,25 +1,24 @@
 /**
- * STT do Shogun — wrapper TS do motor whisper.cpp local (comandos Tauri).
+ * STT do Shogun — wrapper TS do motor de voz local (comandos Tauri).
  *
- * O motor vive no processo Rust (`src-tauri/src/stt.rs`): whisper.cpp em CPU,
- * modelo ggml oficial baixado no primeiro uso (fora do repositorio e do
- * instalador), `language: "pt"` fixado. Este modulo e a UNICA porta de
- * entrada do frontend para ele — quem captura audio chama `transcrever()` e
- * recebe texto, sem saber qual motor esta por tras (mesmo desenho de
- * `voz.ts`, onde `falar()` esconde o speechSynthesis; nuvem entraria como
- * upgrade atras desta mesma interface).
+ * O motor inteiro vive no processo Rust: a CAPTURA em `src-tauri/src/
+ * microfone.rs` (cpal/WASAPI) e a TRANSCRICAO em `src-tauri/src/stt.rs`
+ * (whisper.cpp em CPU, modelo ggml baixado no primeiro uso, `language: "pt"`
+ * fixado). Este modulo e a UNICA porta de entrada do frontend para ele.
  *
- * Contrato do audio: PCM 16 kHz, mono, `Float32Array` com amostras em
- * -1.0..1.0 — o formato que o whisper.cpp consome e que a captura via
- * AudioWorklet produz. A serializacao pelo `invoke` copia o buffer; para
- * falas de comando (segundos), o custo e desprezivel (~64 KB/s de fala).
+ * **O audio nunca passa por aqui.** Ate o PR #62 a captura era
+ * `getUserMedia` no WebView2 e o PCM atravessava o IPC como array JSON;
+ * a decisao que trouxe o cpal mudou isso. O que este modulo manda e recebe
+ * agora sao so comandos e texto: `iniciarGravacao()` abre o microfone,
+ * `pararGravacaoETranscrever()` fecha e devolve a fala ja transcrita. O PCM
+ * nasce e morre em Rust.
  *
  * Erros: o Rust devolve `{ tipo, mensagem }` ja em portugues sem acentos e
  * sem caminho de disco; aqui isso vira `ErroStt` (mesmo padrao do
  * `ErroComando` em `api.ts`) — a UI decide a reacao pelo `tipo`, nunca por
  * pattern-matching na mensagem.
  */
-import { invoke } from "@tauri-apps/api/core";
+import { invoke, isTauri } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 
 /**
@@ -49,20 +48,37 @@ export interface ProgressoDownloadStt {
   total_bytes: number;
 }
 
+/**
+ * O que o Rust conta sobre a gravacao recem-aberta: a taxa REAL do
+ * dispositivo (o Windows costuma entregar 44,1 ou 48 kHz) e a contagem de
+ * canais do PCM que sai de la — sempre 1, porque a mesclagem para mono
+ * acontece no callback de audio. Nao decide nada no TS; serve ao indicador
+ * de gravacao e ao diagnostico do roteiro manual.
+ */
+export interface InfoGravacao {
+  taxa_hz: number;
+  canais: number;
+}
+
 /** Nome do evento Tauri de progresso — precisa bater com o Rust. */
 export const EVENTO_PROGRESSO_STT = "stt-download-progresso";
 
 /**
  * Categoria da falha, espelhando o `tipo` do `ErroStt` Rust:
  *
- * - `modelo_ausente`: o modelo nao foi baixado — a UI oferece o download.
+ * - `modelo_ausente`: o modelo nao foi baixado — NAO e um erro comum, e o
+ *   gatilho para a UI oferecer o download (ver `baixarModeloStt`).
  * - `modelo_desconhecido`: nome de modelo invalido (bug de chamada, nao de
  *   usuario).
  * - `download` / `integridade`: falha ao baixar ou validar o modelo — ambas
  *   terminam com "tente de novo" e sao seguras de repetir.
  * - `motor`: whisper falhou (carga ou transcricao) — pode ser arquivo
  *   corrompido; re-baixar o modelo e o proximo passo razoavel.
- * - `audio`: a gravacao chegou vazia — problema de captura, nao de motor.
+ * - `microfone`: o dispositivo nao abriu — permissao negada pelo Windows,
+ *   nenhum microfone, microfone ocupado por outro aplicativo.
+ * - `gravacao`: o ciclo foi chamado fora de ordem (parar sem ter iniciado,
+ *   iniciar duas vezes). Bug de fiacao, nao de usuario.
+ * - `audio`: a gravacao chegou vazia — o microfone abriu mas nada chegou.
  * - `desconhecido`: erro fora do contrato (bug); a causa crua vai no console.
  */
 export type TipoErroStt =
@@ -71,6 +87,8 @@ export type TipoErroStt =
   | "download"
   | "integridade"
   | "motor"
+  | "microfone"
+  | "gravacao"
   | "audio"
   | "desconhecido";
 
@@ -80,6 +98,8 @@ const TIPOS_CONHECIDOS: readonly string[] = [
   "download",
   "integridade",
   "motor",
+  "microfone",
+  "gravacao",
   "audio",
 ];
 
@@ -133,6 +153,19 @@ function traduzirErro(e: unknown): ErroStt {
 }
 
 /**
+ * Ha motor de voz neste ambiente?
+ *
+ * O motor e Rust: existe quando o app roda dentro do Tauri, e nao existe no
+ * `vite dev` aberto no navegador (onde `invoke` nem tem para quem falar).
+ * E o GATE do botao de falar — capacidade detectada em runtime, e nao mais
+ * `import.meta.env.DEV`: agora que a fiacao e real, esconder o microfone no
+ * build de producao seria esconder o recurso de quem o tem.
+ */
+export function sttDisponivel(): boolean {
+  return isTauri();
+}
+
+/**
  * Verifica se o modelo esta baixado e integro no disco. Barato (um stat) —
  * pode ser chamado a cada abertura da tela de voz.
  */
@@ -172,32 +205,76 @@ export async function baixarModeloStt(
   }
 }
 
+/** Percentual inteiro (0..100) de um progresso de download. */
+export function percentualDownload(progresso: ProgressoDownloadStt): number {
+  if (progresso.total_bytes <= 0) return 0;
+  const bruto = (progresso.baixado_bytes / progresso.total_bytes) * 100;
+  return Math.min(100, Math.max(0, Math.round(bruto)));
+}
+
+/** Megabytes arredondados — a unidade em que 466 MB significa alguma coisa. */
+export function megabytes(bytes: number): number {
+  return Math.round(bytes / (1024 * 1024));
+}
+
+/** Linha de progresso exibivel: "120 MB de 466 MB (26%)". */
+export function formatarProgresso(progresso: ProgressoDownloadStt): string {
+  return (
+    `${megabytes(progresso.baixado_bytes)} MB de ` +
+    `${megabytes(progresso.total_bytes)} MB ` +
+    `(${percentualDownload(progresso)}%)`
+  );
+}
+
+/* ------------------------------------------------------- ciclo de gravacao */
+
 /**
- * Transcreve uma fala para texto em portugues.
+ * Abre o microfone no Rust e comeca a gravar (push-to-talk pressionado).
  *
- * `pcm`: PCM 16 kHz mono, Float32Array (-1.0..1.0). Gravacao vazia falha
- * aqui mesmo, sem ir ao Rust — e erro de captura, nao de motor.
+ * Falha como `microfone` quando o Windows nega a permissao, quando nao ha
+ * dispositivo de entrada ou quando outro aplicativo o segura.
+ */
+export async function iniciarGravacao(): Promise<InfoGravacao> {
+  try {
+    return await invoke<InfoGravacao>("microfone_iniciar");
+  } catch (e) {
+    throw traduzirErro(e);
+  }
+}
+
+/**
+ * Fecha o microfone e devolve a fala transcrita (push-to-talk solto).
+ *
+ * Um comando so, e nao "parar" seguido de "transcrever": o PCM nao existe
+ * no TS para haver um passo intermediario. Texto vazio significa que nada
+ * foi reconhecido.
  *
  * A primeira chamada carrega o modelo na memoria (segundos); as seguintes
  * reutilizam o contexto. Modelo nao baixado rejeita com `modelo_ausente` —
- * a UI oferece `baixarModeloStt()` e tenta de novo.
+ * a UI oferece `baixarModeloStt()` e o usuario tenta de novo.
  */
-export async function transcrever(
-  pcm: Float32Array,
+export async function pararGravacaoETranscrever(
   modelo: ModeloStt = MODELO_STT_PADRAO,
 ): Promise<string> {
-  if (pcm.length === 0) {
-    throw new ErroStt(
-      "Nenhum audio capturado — a gravacao veio vazia.",
-      "audio",
-    );
-  }
   try {
-    return await invoke<string>("stt_transcrever", {
-      pcm: Array.from(pcm),
-      modelo,
-    });
+    return await invoke<string>("microfone_parar_e_transcrever", { modelo });
   } catch (e) {
     throw traduzirErro(e);
+  }
+}
+
+/**
+ * Fecha o microfone DESCARTANDO o audio (desistencia, troca de tela,
+ * desmontagem do componente).
+ *
+ * Nunca rejeita: quem cancela esta limpando, muitas vezes sem saber se havia
+ * gravacao aberta, e nao tem o que fazer com uma falha. O detalhe vai para o
+ * console. No Rust o comando ja e idempotente.
+ */
+export async function cancelarGravacao(): Promise<void> {
+  try {
+    await invoke<void>("microfone_cancelar");
+  } catch (e) {
+    console.error("[shogun] stt: cancelar gravacao falhou:", traduzirErro(e));
   }
 }

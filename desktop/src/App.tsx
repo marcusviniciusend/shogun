@@ -20,10 +20,6 @@ import {
   verificarSaude,
 } from "./lib/api";
 import {
-  transcritorDeDesenvolvimento,
-  type Transcritor,
-} from "./lib/ditado";
-import {
   ESPERA_REENVIO_MS,
   comReenvioUnico,
   mensagemDeErro,
@@ -33,6 +29,7 @@ import {
   rotearFalha,
 } from "./lib/falhas";
 import { executarInstrucoes } from "./lib/instrucoes";
+import { sttDisponivel } from "./lib/stt";
 import {
   divididoAposVer,
   ordenarSessoes,
@@ -72,19 +69,25 @@ const REDUZ_MOVIMENTO = window.matchMedia(
 ).matches;
 
 /**
- * A COSTURA com o motor de STT e feita aqui, e ainda esta aberta: quando a
- * branch do motor (`lib/stt.ts`) mergear, uma micro-branch troca esta
- * constante por `import { transcrever } from "./lib/stt"`. Ate la:
+ * O gate do push-to-talk.
  *
- *   - build de PRODUCAO: sem transcritor, o Chat nem mostra o botao de falar
- *     (o "oculto atras de flag" da branch 1 do desenho, §7);
- *   - modo DEV (`npm run tauri dev`): captura funciona de ponta a ponta e o
- *     audio "morre num log" no console do WebView2 — e o spike de
- *     getUserMedia/permissao rodavel sem motor nenhum.
+ * Enquanto a costura com o motor estava aberta, o botao de falar so aparecia
+ * em `import.meta.env.DEV` — havia captura, mas o audio morria num log, e
+ * mostrar o microfone em producao teria sido prometer o que nao existia.
+ * Agora a fiacao e real (captura cpal + whisper, ambos no processo Rust), e
+ * a pergunta deixou de ser "que build e este?" para ser "existe motor aqui?".
+ *
+ * Existe motor quando o app roda DENTRO do Tauri. Fora dele — `npm run dev`
+ * aberto no navegador, onde `invoke` nao tem com quem falar — nao existe, e
+ * o chat volta a ser so o de digitar. Nao ha terceiro caso: um build de
+ * producao do Tauri sempre tem o motor compilado junto.
+ *
+ * Ausencia do MODELO nao entra neste gate: o botao aparece, e a primeira
+ * tentativa (ou a checagem de status na montagem do Chat) oferece o download.
+ * Esconder o microfone por causa do modelo faltando esconderia justamente o
+ * caminho que leva a baixa-lo.
  */
-const TRANSCRITOR: Transcritor | undefined = import.meta.env.DEV
-  ? transcritorDeDesenvolvimento
-  : undefined;
+const DITADO_DISPONIVEL = sttDisponivel();
 
 interface Props {
   /** Tema ja lido do store antes do primeiro paint (ver main.tsx). */
@@ -448,7 +451,7 @@ export default function App({ temaInicial }: Props) {
               bloqueado={estadoServidor === "inalcancavel"}
               onEnviar={enviarMensagem}
               onReenviar={(indice, texto) => void tentarDeNovo(indice, texto)}
-              transcritor={TRANSCRITOR}
+              ditadoDisponivel={DITADO_DISPONIVEL}
             />
           )}
           {telas.agentes && (
