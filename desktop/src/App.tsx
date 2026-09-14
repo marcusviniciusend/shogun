@@ -15,13 +15,27 @@ import {
 import {
   buscarPendencias,
   carregarMensagens,
-  ehErroDeConexao,
   enviarComando,
-  ErroComando,
   listarSessoes,
   verificarSaude,
 } from "./lib/api";
+import {
+  ESPERA_REENVIO_MS,
+  comReenvioUnico,
+  mensagemDeErro,
+  mensagemServidorFora,
+  pausaAposRateLimit,
+  refreshSuspenso,
+  rotearFalha,
+} from "./lib/falhas";
 import { executarInstrucoes } from "./lib/instrucoes";
+import {
+  divididoAposVer,
+  ordenarSessoes,
+  viewAposAlternarDividido,
+  viewAposNovaConversa,
+  visibilidade,
+} from "./lib/telas";
 import { calar, falar, inicializarVozes } from "./lib/voz";
 import {
   CONFIG_DEFAULT,
@@ -52,26 +66,6 @@ const REFRESH_AGENTES_MS = 30_000;
 const REDUZ_MOVIMENTO = window.matchMedia(
   "(prefers-reduced-motion: reduce)",
 ).matches;
-
-function mensagemDeErro(e: unknown): string {
-  return e instanceof ErroComando ? e.message : "Erro inesperado ao falar com o servidor.";
-}
-
-/**
- * Texto UNICO de problema de conexao, usado pelo chat e pelo painel de
- * Agentes. Os dois falham juntos quando o servidor cai; textos diferentes em
- * dois cantos da tela pareciam dois problemas. O detalhe (causa, URL) mora em
- * um lugar so: o banner do topo.
- */
-function mensagemServidorFora(): string {
-  return "Sem conexão com o servidor — veja o aviso no topo.";
-}
-
-/**
- * Espera antes do UNICO reenvio automatico de um 503: da tempo de o modelo
- * local terminar de carregar sem transformar o retry em martelada.
- */
-const ESPERA_REENVIO_MS = 2000;
 
 interface Props {
   /** Tema ja lido do store antes do primeiro paint (ver main.tsx). */
@@ -164,39 +158,28 @@ export default function App({ temaInicial }: Props) {
   }
 
   /**
-   * `enviarComando` com UM reenvio automatico quando o erro e 503 (LLM
-   * indisponivel) — o caso do primeiro comando do dia com o modelo local
-   * frio. So esse tipo: reenviar erro de auth ou de rede nao muda nada e
-   * ainda esconderia o problema real.
+   * `enviarComando` com a politica de reenvio de `lib/falhas`: UM reenvio
+   * automatico, so quando o erro e 503 (LLM indisponivel) — o caso do
+   * primeiro comando do dia com o modelo local frio.
    */
-  async function chamarComReenvio(texto: string) {
-    try {
-      return await enviarComando(config, texto, sessionId);
-    } catch (e) {
-      if (!(e instanceof ErroComando) || e.tipo !== "llm_indisponivel") {
-        throw e;
-      }
-      await new Promise((r) => setTimeout(r, ESPERA_REENVIO_MS));
-      return await enviarComando(config, texto, sessionId);
-    }
+  function chamarComReenvio(texto: string) {
+    return comReenvioUnico(
+      () => enviarComando(config, texto, sessionId),
+      () => new Promise((r) => setTimeout(r, ESPERA_REENVIO_MS)),
+    );
   }
 
   /**
-   * Roteia uma falha para o lugar certo e devolve o texto a exibir no local.
-   *
-   * Problema de CONEXAO vai para o indicador unico do topo (o mesmo que o
-   * /health alimenta) e o local recebe so a frase curta que aponta para la —
-   * chat e painel de Agentes falham juntos quando o servidor cai, e este
-   * funil e o que impede a mesma queda de parecer dois problemas. Erros
-   * especificos (auth, 503, formato) continuam onde ocorreram.
+   * Aplica `rotearFalha` (lib/falhas) ao estado: conexao vai para o banner do
+   * topo (o mesmo que o /health alimenta); devolve o texto a exibir no local.
    */
   function registrarFalha(e: unknown): string {
-    if (ehErroDeConexao(e)) {
+    const rota = rotearFalha(e);
+    if (rota.motivoBanner !== null) {
       setEstadoServidor("inalcancavel");
-      setMotivoServidor(e.message);
-      return mensagemServidorFora();
+      setMotivoServidor(rota.motivoBanner);
     }
-    return mensagemDeErro(e);
+    return rota.textoLocal;
   }
 
   /** Envia `texto` ao servidor. A bolha do usuario ja esta no historico. */
@@ -268,10 +251,8 @@ export default function App({ temaInicial }: Props) {
       // Rate limit: suspende o refresh automatico pelo tempo que o servidor
       // pediu (sem Retry-After, um ciclo inteiro). Reenviar automatico em 429
       // e exatamente o que o limite pune.
-      if (e instanceof ErroComando && e.tipo === "rate_limit") {
-        pausaAgentesAteRef.current =
-          Date.now() + (e.retryAfterSegundos ?? REFRESH_AGENTES_MS / 1000) * 1000;
-      }
+      const pausa = pausaAposRateLimit(e, Date.now(), REFRESH_AGENTES_MS);
+      if (pausa !== null) pausaAgentesAteRef.current = pausa;
       setErroAgentes(registrarFalha(e));
     } finally {
       consultandoAgentesRef.current = false;
@@ -287,8 +268,7 @@ export default function App({ temaInicial }: Props) {
     if (estadoServidor !== "ok") return;
     void atualizarAgentes();
     const timer = setInterval(() => {
-      const pausaAte = pausaAgentesAteRef.current;
-      if (pausaAte !== null && Date.now() < pausaAte) return;
+      if (refreshSuspenso(pausaAgentesAteRef.current, Date.now())) return;
       void atualizarAgentes();
     }, REFRESH_AGENTES_MS);
     return () => clearInterval(timer);
@@ -301,11 +281,7 @@ export default function App({ temaInicial }: Props) {
     setSessoesErro(null);
     try {
       const resposta = await listarSessoes(config);
-      setSessoes(
-        [...resposta.sessoes].sort((a, b) =>
-          b.atualizada_em.localeCompare(a.atualizada_em),
-        ),
-      );
+      setSessoes(ordenarSessoes(resposta.sessoes));
     } catch (e) {
       setSessoesErro(registrarFalha(e));
     } finally {
@@ -374,10 +350,7 @@ export default function App({ temaInicial }: Props) {
   }
 
   // O dividido so junta chat + agentes; conversas e uma tela propria.
-  const emDashboard = view === "chat" || view === "agentes";
-  const mostraChat = view === "chat" || (dividido && emDashboard);
-  const mostraAgentes = view === "agentes" || (dividido && emDashboard);
-  const mostraConversas = view === "conversas";
+  const telas = visibilidade(view, dividido);
 
   return (
     <div className="app">
@@ -388,16 +361,16 @@ export default function App({ temaInicial }: Props) {
         onAlternarMudo={() => void alternarMudo()}
         onNovaConversa={() => {
           void novaConversa();
-          setView(dividido ? view : "chat");
+          setView(viewAposNovaConversa(view, dividido));
         }}
         onVer={(v) => {
           setView(v);
-          if (v !== "config") setDividido(false);
+          setDividido(divididoAposVer(v, dividido));
         }}
         onAlternarDividido={() => {
           setDividido((d) => !d);
           // Dividido e sempre chat + agentes: vindo de outra tela, aterra no chat.
-          if (view === "config" || view === "conversas") setView("chat");
+          setView(viewAposAlternarDividido(view));
         }}
       />
       <header className="app-cabecalho">
@@ -439,7 +412,7 @@ export default function App({ temaInicial }: Props) {
         />
       ) : (
         <main className={`dashboard${dividido ? " dividido" : ""}`}>
-          {mostraConversas && (
+          {telas.conversas && (
             <Conversas
               sessoes={sessoes}
               sessionIdAtual={sessionId}
@@ -449,7 +422,7 @@ export default function App({ temaInicial }: Props) {
               onAbrir={(id) => void abrirConversa(id)}
             />
           )}
-          {mostraChat && (
+          {telas.chat && (
             <Chat
               mensagens={mensagens}
               carregando={chatCarregando}
@@ -458,7 +431,7 @@ export default function App({ temaInicial }: Props) {
               onReenviar={(indice, texto) => void tentarDeNovo(indice, texto)}
             />
           )}
-          {mostraAgentes && (
+          {telas.agentes && (
             <PainelAgentes
               pendencias={pendencias}
               total={totalPendencias}
