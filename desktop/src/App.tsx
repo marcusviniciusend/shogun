@@ -20,6 +20,10 @@ import {
   verificarSaude,
 } from "./lib/api";
 import {
+  transcritorDeDesenvolvimento,
+  type Transcritor,
+} from "./lib/ditado";
+import {
   ESPERA_REENVIO_MS,
   comReenvioUnico,
   mensagemDeErro,
@@ -66,6 +70,21 @@ const REFRESH_AGENTES_MS = 30_000;
 const REDUZ_MOVIMENTO = window.matchMedia(
   "(prefers-reduced-motion: reduce)",
 ).matches;
+
+/**
+ * A COSTURA com o motor de STT e feita aqui, e ainda esta aberta: quando a
+ * branch do motor (`lib/stt.ts`) mergear, uma micro-branch troca esta
+ * constante por `import { transcrever } from "./lib/stt"`. Ate la:
+ *
+ *   - build de PRODUCAO: sem transcritor, o Chat nem mostra o botao de falar
+ *     (o "oculto atras de flag" da branch 1 do desenho, §7);
+ *   - modo DEV (`npm run tauri dev`): captura funciona de ponta a ponta e o
+ *     audio "morre num log" no console do WebView2 — e o spike de
+ *     getUserMedia/permissao rodavel sem motor nenhum.
+ */
+const TRANSCRITOR: Transcritor | undefined = import.meta.env.DEV
+  ? transcritorDeDesenvolvimento
+  : undefined;
 
 interface Props {
   /** Tema ja lido do store antes do primeiro paint (ver main.tsx). */
@@ -429,6 +448,7 @@ export default function App({ temaInicial }: Props) {
               bloqueado={estadoServidor === "inalcancavel"}
               onEnviar={enviarMensagem}
               onReenviar={(indice, texto) => void tentarDeNovo(indice, texto)}
+              transcritor={TRANSCRITOR}
             />
           )}
           {telas.agentes && (
