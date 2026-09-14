@@ -19,10 +19,16 @@ Criterios de seguranca (valem tambem com --executar):
   com a HEAD ja CONTIDA em origin/dev (git merge-base --is-ancestor); sujo,
   nao contido, locked ou em dev/main aparece como MANTIDO com o motivo;
 - worktree cujo diretorio sumiu do disco vira caso de "git worktree prune";
-- branch local so e candidata se for feature/*, com upstream "gone" e ponta
-  contida em origin/dev; a remocao usa git branch -d (minusculo) — o proprio
-  git recusa o que nao estiver mergeado. NUNCA -D, nunca push, nunca delecao
-  remota, nunca worktree remove --force (o que exigir force fica MANTIDO).
+- branch local so e candidata em dois padroes, e nada alem deles:
+  * feature/*: exige upstream "gone" E ponta contida em origin/dev — "sem
+    upstream" significa trabalho nunca publicado, entao fica;
+  * worktree-agent-*: criadas pelo harness do Claude Code para os worktrees
+    dos agentes; quando o worktree e removido, a branch fica orfa. Elas nao
+    tem upstream POR NATUREZA, entao o criterio "sem upstream = mantida" das
+    feature/* NAO se aplica: basta a ponta estar contida em origin/dev;
+  a remocao usa git branch -d (minusculo) — o proprio git recusa o que nao
+  estiver mergeado. NUNCA -D, nunca push, nunca delecao remota, nunca
+  worktree remove --force (o que exigir force fica MANTIDO).
 
 Uso (a partir da raiz do repositorio):
 
@@ -98,6 +104,17 @@ def contido_em(sha: str, base: str) -> bool | None:
     if codigo == 1:
         return False
     return None
+
+
+def eh_branch_agente(nome: str) -> bool:
+    """True para branches worktree-agent-* (harness do Claude Code).
+
+    Essas branches sao criadas pelo harness para os worktrees dos agentes e
+    nunca sao pushadas; quando o worktree e removido, a branch fica orfa.
+    Por isso a ASSIMETRIA de criterio em classificar_branch: para elas,
+    "sem upstream" e a natureza, nao motivo de manutencao.
+    """
+    return nome.startswith("worktree-agent-")
 
 
 # ---------------------------------------------------------------------------
@@ -186,27 +203,50 @@ def classificar_branch(
 ) -> tuple[str, str]:
     """Classifica uma branch local. Funcao pura: nao roda git.
 
+    Dois padroes entram na faxina, com criterios ASSIMETRICOS de proposito:
+
+    - feature/*: nasce para ser pushada. "Sem upstream" significa trabalho
+      nunca publicado (fica); o criterio exige upstream "gone" + ponta
+      contida em origin/dev.
+    - worktree-agent-*: criada pelo harness do Claude Code para o worktree
+      de um agente, nunca pushada — "sem upstream" e a natureza dela, nao
+      um sinal de trabalho nao publicado. O criterio e apenas a ponta
+      contida em origin/dev.
+
     worktrees_removiveis: caminhos normalizados dos worktrees classificados
     como REMOVER — uma branch em uso num deles ainda pode cair, desde que o
     worktree caia antes.
     """
     if br.nome in ("dev", "main"):
         return PROTEGIDO, "branch de integracao — nunca tocada"
-    if not br.upstream:
-        return MANTIDO, "sem upstream configurado — nunca foi pushada, nao ha 'gone' para confirmar"
-    if br.track != "[gone]":
-        return MANTIDO, f"upstream {br.upstream} ainda existe"
+    if eh_branch_agente(br.nome):
+        # assimetria documentada acima: sem exigencia de upstream/gone.
+        if br.upstream and br.track != "[gone]":
+            return MANTIDO, (
+                f"upstream {br.upstream} ainda existe — fora do padrao das "
+                "branches de agente (elas nao tem upstream); na duvida, fica"
+            )
+    else:
+        if not br.upstream:
+            return MANTIDO, "sem upstream configurado — nunca foi pushada, nao ha 'gone' para confirmar"
+        if br.track != "[gone]":
+            return MANTIDO, f"upstream {br.upstream} ainda existe"
     if br.contido is None:
         return MANTIDO, "nao deu para verificar se a ponta esta em origin/dev — na duvida, fica"
     if br.contido is False:
-        return MANTIDO, "upstream gone, mas a ponta NAO esta em origin/dev — tem commit local nao mergeado"
+        return MANTIDO, "a ponta NAO esta em origin/dev — tem commit local nao mergeado"
     if br.worktree is not None:
         if caminho_normalizado(br.worktree) in worktrees_removiveis:
             return REMOVER, (
-                "mergeada e upstream gone; em uso num worktree que tambem e candidato "
+                "mergeada; em uso num worktree que tambem e candidato "
                 "(a remocao do worktree precisa vir antes)"
             )
         return MANTIDO, f"em uso no worktree mantido {br.worktree}"
+    if eh_branch_agente(br.nome):
+        return REMOVER, (
+            "mergeada em origin/dev; branch de agente orfa, sem upstream por "
+            "natureza (git branch -d confirma)"
+        )
     return REMOVER, "mergeada em origin/dev e upstream gone (git branch -d confirma)"
 
 
@@ -226,8 +266,9 @@ def coletar_worktrees(base: str) -> list[Worktree]:
 
 
 def coletar_branches(base: str, worktrees: list[Worktree]) -> list[BranchLocal]:
+    # os dois unicos padroes no escopo da faxina — e nada alem deles.
     saida = git_ou_falha([
-        "for-each-ref", "refs/heads/feature/*",
+        "for-each-ref", "refs/heads/feature/*", "refs/heads/worktree-agent-*",
         "--format=%(refname:short)|%(objectname)|%(upstream:short)|%(upstream:track)",
     ])
     em_uso = {
@@ -239,7 +280,12 @@ def coletar_branches(base: str, worktrees: list[Worktree]) -> list[BranchLocal]:
             continue
         nome, sha, upstream, track = (linha.split("|") + ["", "", ""])[:4]
         br = BranchLocal(nome=nome, sha=sha, upstream=upstream, track=track)
-        if upstream and track == "[gone]":
+        if eh_branch_agente(nome):
+            # branch de agente: sem upstream por natureza — verifica a ponta
+            # sempre que o criterio de upstream nao a mantiver antes.
+            if not upstream or track == "[gone]":
+                br.contido = contido_em(sha, base)
+        elif upstream and track == "[gone]":
             br.contido = contido_em(sha, base)
         br.worktree = em_uso.get(nome)
         branches.append(br)
@@ -261,18 +307,23 @@ def rotulo(categoria: str, executando: bool) -> str:
 def imprimir_plano(
     worktrees: list[tuple[Worktree, str, str]],
     branches: list[tuple[BranchLocal, str, str]],
-    executando: bool,
+    executando_worktrees: bool,
+    executando_branches: bool,
 ) -> None:
+    """Imprime o plano. Os flags de execucao sao POR CATEGORIA: com
+    `--executar --branches` (sem --worktrees), os worktrees continuam no
+    condicional ("REMOVERIA") — nada fora da categoria pedida vira "REMOVER".
+    """
     print("== Worktrees ==")
     for wt, categoria, motivo in worktrees:
         alvo = wt.caminho + (f" [{wt.branch}]" if wt.branch else " [detached]")
-        print(f"  {rotulo(categoria, executando)}: {alvo} — {motivo}")
+        print(f"  {rotulo(categoria, executando_worktrees)}: {alvo} — {motivo}")
     print()
-    print("== Branches locais (feature/*) ==")
+    print("== Branches locais (feature/*, worktree-agent-*) ==")
     if not branches:
-        print("  (nenhuma branch feature/* local)")
+        print("  (nenhuma branch feature/* ou worktree-agent-* local)")
     for br, categoria, motivo in branches:
-        print(f"  {rotulo(categoria, executando)}: {br.nome} — {motivo}")
+        print(f"  {rotulo(categoria, executando_branches)}: {br.nome} — {motivo}")
     print()
 
 
@@ -402,7 +453,10 @@ def main() -> None:
     try:
         if not args.executar:
             print("Modo DRY-RUN (padrao): nada sera tocado. Plano:\n")
-            imprimir_plano(wt_classificados, br_classificados, executando=False)
+            imprimir_plano(
+                wt_classificados, br_classificados,
+                executando_worktrees=False, executando_branches=False,
+            )
             n_wt = sum(1 for _, c, _ in wt_classificados if c == REMOVER)
             n_pr = sum(1 for _, c, _ in wt_classificados if c == PRUNE)
             n_br = sum(1 for _, c, _ in br_classificados if c == REMOVER)
@@ -416,8 +470,29 @@ def main() -> None:
             )
             return
 
+        if args.branches and not args.worktrees:
+            # sem --worktrees nesta execucao, o worktree candidato NAO vai
+            # cair antes — o git recusaria deletar a branch em uso nele.
+            # Rebaixa para MANTIDA com o motivo certo em vez de colecionar
+            # uma recusa previsivel (e um exit 1) do git.
+            br_classificados = [
+                (br, MANTIDO,
+                 "em uso num worktree candidato ainda presente — rode com "
+                 "--worktrees (antes ou junto) para o worktree cair primeiro")
+                if categoria == REMOVER and br.worktree is not None
+                else (br, categoria, motivo)
+                for br, categoria, motivo in br_classificados
+            ]
+
         print("Modo EXECUCAO. Plano aprovado pelas flags:\n")
-        imprimir_plano(wt_classificados, br_classificados, executando=True)
+        # com --worktrees --branches juntos, a ordem interna abaixo ja
+        # garante "worktrees primeiro" — a dependencia so exige atencao do
+        # humano quando as categorias rodam em execucoes separadas.
+        imprimir_plano(
+            wt_classificados, br_classificados,
+            executando_worktrees=args.worktrees,
+            executando_branches=args.branches,
+        )
 
         ok_wt = falhas_wt = ok_br = falhas_br = 0
         if args.worktrees:
@@ -427,11 +502,22 @@ def main() -> None:
 
         mantidos_wt = sum(1 for _, c, _ in wt_classificados if c == MANTIDO)
         mantidas_br = sum(1 for _, c, _ in br_classificados if c == MANTIDO)
+        partes = []
+        if args.worktrees:
+            partes.append(
+                f"{ok_wt} worktree(s) removidos, {mantidos_wt} mantido(s) por criterio"
+            )
+        else:
+            partes.append("worktrees fora desta execucao (sem --worktrees)")
+        if args.branches:
+            partes.append(
+                f"{ok_br} branch(es) removidas, {mantidas_br} mantida(s) por criterio"
+            )
+        else:
+            partes.append("branches fora desta execucao (sem --branches)")
         print()
         print(
-            f"Resumo: {ok_wt} worktree(s) removidos, {ok_br} branch(es) removidas, "
-            f"{falhas_wt + falhas_br} recusa(s) do git, "
-            f"{mantidos_wt} worktree(s) e {mantidas_br} branch(es) mantidos por criterio."
+            f"Resumo: {'; '.join(partes)}; {falhas_wt + falhas_br} recusa(s) do git."
         )
         if falhas_wt + falhas_br:
             sys.exit(1)
