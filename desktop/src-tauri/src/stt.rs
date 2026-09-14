@@ -30,7 +30,7 @@ use std::sync::{Arc, Mutex};
 
 use serde::Serialize;
 use sha2::{Digest, Sha256};
-use tauri::{AppHandle, Emitter, Manager, State};
+use tauri::{AppHandle, Emitter, Manager};
 use whisper_rs::{FullParams, SamplingStrategy, WhisperContext, WhisperContextParameters};
 
 /// Evento emitido durante o download do modelo. O wrapper TS escuta este nome.
@@ -102,7 +102,7 @@ pub struct ErroStt {
 }
 
 impl ErroStt {
-    fn novo(tipo: &'static str, mensagem: impl Into<String>) -> Self {
+    pub(crate) fn novo(tipo: &'static str, mensagem: impl Into<String>) -> Self {
         Self {
             tipo,
             mensagem: mensagem.into(),
@@ -375,15 +375,21 @@ fn carregar_contexto(caminho: &PathBuf) -> Result<WhisperContext, ErroStt> {
 
 /// Transcreve PCM 16 kHz mono (f32, -1.0..1.0) para texto em portugues.
 ///
+/// NAO e um comando Tauri: o PCM nunca atravessa o IPC. O unico chamador e
+/// `microfone::microfone_parar_e_transcrever`, que entrega o audio ainda em
+/// Rust, direto do callback de captura do cpal — a decisao que trocou o
+/// `getUserMedia` do WebView2 pela captura nativa. Manter uma porta publica
+/// que aceitasse PCM vindo do frontend reabriria, so para quem chamasse
+/// errado, exatamente o caminho que a decisao fechou.
+///
 /// O contexto e carregado na primeira chamada e reutilizado nas seguintes;
 /// trocar o `modelo` forca recarga. A inferencia roda em `spawn_blocking`
 /// para nunca travar o runtime do Tauri.
-#[tauri::command]
-pub async fn stt_transcrever(
-    app: AppHandle,
-    estado: State<'_, EstadoStt>,
+pub(crate) async fn transcrever_pcm(
+    app: &AppHandle,
+    estado: &EstadoStt,
     pcm: Vec<f32>,
-    modelo: Option<String>,
+    modelo: Option<&str>,
 ) -> Result<String, ErroStt> {
     if pcm.is_empty() {
         return Err(ErroStt::novo(
@@ -392,9 +398,9 @@ pub async fn stt_transcrever(
         ));
     }
 
-    let m = modelo_conhecido(modelo.as_deref())?;
+    let m = modelo_conhecido(modelo)?;
 
-    let status = status_no_disco(&app, m)?;
+    let status = status_no_disco(app, m)?;
     if !status.presente {
         return Err(ErroStt::novo(
             "modelo_ausente",
@@ -418,7 +424,7 @@ pub async fn stt_transcrever(
     let contexto = match contexto {
         Some(c) => c,
         None => {
-            let caminho = dir_modelos(&app)?.join(m.arquivo);
+            let caminho = dir_modelos(app)?.join(m.arquivo);
             let novo = tauri::async_runtime::spawn_blocking(move || carregar_contexto(&caminho))
                 .await
                 .map_err(|e| {
