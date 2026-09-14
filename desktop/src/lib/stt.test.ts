@@ -7,7 +7,8 @@
  *
  * O que se prende aqui e o contrato do wrapper: os comandos e argumentos que
  * cada funcao manda ao Rust, a traducao de `{ tipo, mensagem }` em `ErroStt`,
- * o ciclo de vida do listener de progresso. PCM nao aparece em teste nenhum — desde a troca para a captura
+ * o ciclo de vida do listener de progresso e a aritmetica de exibicao do
+ * download. PCM nao aparece em teste nenhum — desde a troca para a captura
  * nativa, o audio nao passa mais por este lado.
  */
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -21,8 +22,11 @@ import {
   MODELO_STT_PADRAO,
   baixarModeloStt,
   cancelarGravacao,
+  formatarProgresso,
   iniciarGravacao,
+  megabytes,
   pararGravacaoETranscrever,
+  percentualDownload,
   sttDisponivel,
   statusModeloStt,
   type ProgressoDownloadStt,
@@ -155,6 +159,37 @@ describe("sttDisponivel", () => {
     expect(sttDisponivel()).toBe(true);
     isTauriMock.mockReturnValue(false);
     expect(sttDisponivel()).toBe(false);
+  });
+});
+
+describe("progresso do download", () => {
+  const progresso = (baixado: number, total = 487601967): ProgressoDownloadStt => ({
+    modelo: "small",
+    baixado_bytes: baixado,
+    total_bytes: total,
+  });
+
+  it("percentual e inteiro e nunca sai de 0..100", () => {
+    expect(percentualDownload(progresso(0))).toBe(0);
+    expect(percentualDownload(progresso(487601967))).toBe(100);
+    expect(percentualDownload(progresso(243800983))).toBe(50);
+    // Servidor mentindo no content-length nao produz 137%.
+    expect(percentualDownload(progresso(999999999))).toBe(100);
+  });
+
+  it("total zerado nao vira divisao por zero", () => {
+    expect(percentualDownload(progresso(10, 0))).toBe(0);
+  });
+
+  it("megabytes e a unidade em que 466 MB significa alguma coisa", () => {
+    expect(megabytes(487601967)).toBe(465);
+    expect(megabytes(0)).toBe(0);
+  });
+
+  it("a linha exibivel junta baixado, total e percentual", () => {
+    expect(formatarProgresso(progresso(243800983))).toBe(
+      "233 MB de 465 MB (50%)",
+    );
   });
 });
 

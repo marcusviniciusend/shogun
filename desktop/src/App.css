@@ -633,6 +633,26 @@ body {
   color: var(--bengara);
 }
 
+/*
+  Oferta de download do modelo de voz na primeira execucao. Nao usa a cor de
+  erro de proposito: nada quebrou — falta uma peca, e o botao ao lado e o
+  caminho para busca-la.
+*/
+.chat-modelo-oferta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.6rem;
+  margin: 0.4rem 0 0;
+  font-size: 0.8rem;
+  color: var(--hai);
+}
+
+.chat-modelo-oferta progress {
+  flex: 1 1 10rem;
+  height: 0.35rem;
+}
+
 /* ------------------------------------------------------------------ agentes */
 
 .agentes-lista {

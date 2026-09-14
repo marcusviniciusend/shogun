@@ -205,6 +205,27 @@ export async function baixarModeloStt(
   }
 }
 
+/** Percentual inteiro (0..100) de um progresso de download. */
+export function percentualDownload(progresso: ProgressoDownloadStt): number {
+  if (progresso.total_bytes <= 0) return 0;
+  const bruto = (progresso.baixado_bytes / progresso.total_bytes) * 100;
+  return Math.min(100, Math.max(0, Math.round(bruto)));
+}
+
+/** Megabytes arredondados — a unidade em que 466 MB significa alguma coisa. */
+export function megabytes(bytes: number): number {
+  return Math.round(bytes / (1024 * 1024));
+}
+
+/** Linha de progresso exibivel: "120 MB de 466 MB (26%)". */
+export function formatarProgresso(progresso: ProgressoDownloadStt): string {
+  return (
+    `${megabytes(progresso.baixado_bytes)} MB de ` +
+    `${megabytes(progresso.total_bytes)} MB ` +
+    `(${percentualDownload(progresso)}%)`
+  );
+}
+
 /* ------------------------------------------------------- ciclo de gravacao */
 
 /**
