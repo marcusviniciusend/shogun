@@ -578,6 +578,61 @@ body {
   outline: none;
 }
 
+/*
+ * Botao de falar (push-to-talk): o glifo 声 ("voz") no lugar de icone de
+ * microfone — quem fala aqui e a tipografia, como no selo e no wordmark.
+ *
+ * O bengara SO aparece com o microfone aberto. Nao e decoracao: mic quente e
+ * atencao critica (a regra da paleta), e o desenho de STT pede indicador
+ * inequivoco de gravacao (§5.2).
+ */
+.chat-falar {
+  font-size: 1.1rem;
+  font-weight: 400;
+  padding: 0.35rem 0.2rem;
+  color: var(--hai);
+  /* Segurar o botao nao pode virar selecao de texto nem gesto de rolagem. */
+  user-select: none;
+  touch-action: none;
+}
+
+.chat-falar:hover:not(:disabled) {
+  text-decoration: none;
+  color: var(--tinta);
+}
+
+.chat-falar.gravando {
+  color: var(--bengara);
+  animation: pulso-gravando 1.1s ease-in-out infinite;
+}
+
+@keyframes pulso-gravando {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.45;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .chat-falar.gravando {
+    animation: none;
+  }
+}
+
+/* Linha de status do ditado (Ouvindo… / Transcrevendo… / erro de captura). */
+.chat-ditado-status {
+  margin: 0.4rem 0 0;
+  font-size: 0.8rem;
+  color: var(--hai);
+}
+
+.chat-ditado-status.erro {
+  color: var(--bengara);
+}
+
 /* ------------------------------------------------------------------ agentes */
 
 .agentes-lista {
