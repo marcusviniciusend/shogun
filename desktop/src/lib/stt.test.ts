@@ -1,16 +1,19 @@
 /**
- * Testes do wrapper de STT — `invoke` e `listen` mockados, no padrao da
- * suite: modulo puro, plugin dublado, e o teto de honestidade registrado —
- * o motor whisper de verdade (Rust + modelo de ~466 MB) fica fora do vitest;
- * transcricao com som real e teste manual (roteiro F9 no PR).
+ * Testes do wrapper de STT — `invoke`, `listen` e `isTauri` mockados, no
+ * padrao da suite: modulo puro, plugin dublado, e o teto de honestidade
+ * registrado — o motor de verdade (captura cpal + whisper + modelo de
+ * ~466 MB) fica em Rust, fora do vitest; audio real e teste manual (roteiro
+ * F9 no PR).
  *
- * O que se prende aqui e o contrato do wrapper: a forma com que o PCM vai ao
- * `invoke`, a traducao de `{ tipo, mensagem }` em `ErroStt`, o ciclo de vida
- * do listener de progresso e os guardas locais (gravacao vazia).
+ * O que se prende aqui e o contrato do wrapper: os comandos e argumentos que
+ * cada funcao manda ao Rust, a traducao de `{ tipo, mensagem }` em `ErroStt`,
+ * o ciclo de vida do listener de progresso e a aritmetica de exibicao do
+ * download. PCM nao aparece em teste nenhum — desde a troca para a captura
+ * nativa, o audio nao passa mais por este lado.
  */
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { invoke } from "@tauri-apps/api/core";
+import { invoke, isTauri } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 
 import {
@@ -18,17 +21,24 @@ import {
   EVENTO_PROGRESSO_STT,
   MODELO_STT_PADRAO,
   baixarModeloStt,
+  cancelarGravacao,
+  formatarProgresso,
+  iniciarGravacao,
+  megabytes,
+  pararGravacaoETranscrever,
+  percentualDownload,
+  sttDisponivel,
   statusModeloStt,
-  transcrever,
   type ProgressoDownloadStt,
   type StatusModeloStt,
 } from "./stt";
 
-vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
+vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn(), isTauri: vi.fn() }));
 vi.mock("@tauri-apps/api/event", () => ({ listen: vi.fn() }));
 
 const invokeMock = vi.mocked(invoke);
 const listenMock = vi.mocked(listen);
+const isTauriMock = vi.mocked(isTauri);
 
 /** Um status de modelo plausivel, para as respostas dubladas. */
 function status(presente: boolean): StatusModeloStt {
@@ -43,90 +53,6 @@ function status(presente: boolean): StatusModeloStt {
 
 beforeEach(() => {
   vi.clearAllMocks();
-});
-
-describe("transcrever", () => {
-  it("manda o PCM como array simples e devolve o texto do motor", async () => {
-    invokeMock.mockResolvedValue("abrir a calculadora");
-    const pcm = new Float32Array([0.1, -0.2, 0.3]);
-
-    const texto = await transcrever(pcm);
-
-    expect(texto).toBe("abrir a calculadora");
-    expect(invokeMock).toHaveBeenCalledWith("stt_transcrever", {
-      // Array simples, nao Float32Array: o IPC serializa JSON, e typed array
-      // nao sobrevive ao JSON.stringify.
-      pcm: [expect.closeTo(0.1), expect.closeTo(-0.2), expect.closeTo(0.3)],
-      modelo: MODELO_STT_PADRAO,
-    });
-    const enviado = invokeMock.mock.calls[0][1] as { pcm: unknown };
-    expect(Array.isArray(enviado.pcm)).toBe(true);
-  });
-
-  it("modelo explicito e repassado — a troca small/base e runtime", async () => {
-    invokeMock.mockResolvedValue("oi");
-
-    await transcrever(new Float32Array([0.1]), "base");
-
-    expect(invokeMock).toHaveBeenCalledWith(
-      "stt_transcrever",
-      expect.objectContaining({ modelo: "base" }),
-    );
-  });
-
-  it("gravacao vazia falha como `audio` sem nem chamar o Rust", async () => {
-    await expect(transcrever(new Float32Array(0))).rejects.toMatchObject({
-      name: "ErroStt",
-      tipo: "audio",
-    });
-    expect(invokeMock).not.toHaveBeenCalled();
-  });
-
-  it("modelo nao baixado vira ErroStt `modelo_ausente` com a mensagem do Rust", async () => {
-    invokeMock.mockRejectedValue({
-      tipo: "modelo_ausente",
-      mensagem: "O modelo de voz \"small\" ainda nao foi baixado.",
-    });
-
-    const erro = await transcrever(new Float32Array([0.1])).catch((e) => e);
-
-    expect(erro).toBeInstanceOf(ErroStt);
-    expect(erro.tipo).toBe("modelo_ausente");
-    expect(erro.message).toBe(
-      'O modelo de voz "small" ainda nao foi baixado.',
-    );
-  });
-
-  it("tipo fora do contrato preserva a mensagem mas cai em `desconhecido`", async () => {
-    // Rust mais novo que o wrapper: a mensagem ainda e exibivel, o tipo nao
-    // pode enganar a UI.
-    invokeMock.mockRejectedValue({
-      tipo: "gpu_em_chamas",
-      mensagem: "Algo novo aconteceu.",
-    });
-
-    const erro = await transcrever(new Float32Array([0.1])).catch((e) => e);
-
-    expect(erro.tipo).toBe("desconhecido");
-    expect(erro.message).toBe("Algo novo aconteceu.");
-  });
-
-  it("erro cru do IPC vira `desconhecido` com mensagem generica e causa preservada", async () => {
-    const consoleError = vi
-      .spyOn(console, "error")
-      .mockImplementation(() => {});
-    invokeMock.mockRejectedValue("panicked at ...");
-
-    const erro = await transcrever(new Float32Array([0.1])).catch((e) => e);
-
-    expect(erro).toBeInstanceOf(ErroStt);
-    expect(erro.tipo).toBe("desconhecido");
-    expect(erro.message).toBe("O motor de voz falhou de forma inesperada.");
-    // A causa crua sobrevive para diagnostico — no erro e no console.
-    expect(erro.causa).toBe("panicked at ...");
-    expect(consoleError).toHaveBeenCalled();
-    consoleError.mockRestore();
-  });
 });
 
 describe("statusModeloStt", () => {
@@ -224,5 +150,149 @@ describe("baixarModeloStt", () => {
 
     expect(erro).toBeInstanceOf(ErroStt);
     expect(erro.tipo).toBe("download");
+  });
+});
+
+describe("sttDisponivel", () => {
+  it("ha motor de voz quando o app roda dentro do Tauri, e so entao", () => {
+    isTauriMock.mockReturnValue(true);
+    expect(sttDisponivel()).toBe(true);
+    isTauriMock.mockReturnValue(false);
+    expect(sttDisponivel()).toBe(false);
+  });
+});
+
+describe("progresso do download", () => {
+  const progresso = (baixado: number, total = 487601967): ProgressoDownloadStt => ({
+    modelo: "small",
+    baixado_bytes: baixado,
+    total_bytes: total,
+  });
+
+  it("percentual e inteiro e nunca sai de 0..100", () => {
+    expect(percentualDownload(progresso(0))).toBe(0);
+    expect(percentualDownload(progresso(487601967))).toBe(100);
+    expect(percentualDownload(progresso(243800983))).toBe(50);
+    // Servidor mentindo no content-length nao produz 137%.
+    expect(percentualDownload(progresso(999999999))).toBe(100);
+  });
+
+  it("total zerado nao vira divisao por zero", () => {
+    expect(percentualDownload(progresso(10, 0))).toBe(0);
+  });
+
+  it("megabytes e a unidade em que 466 MB significa alguma coisa", () => {
+    expect(megabytes(487601967)).toBe(465);
+    expect(megabytes(0)).toBe(0);
+  });
+
+  it("a linha exibivel junta baixado, total e percentual", () => {
+    expect(formatarProgresso(progresso(243800983))).toBe(
+      "233 MB de 465 MB (50%)",
+    );
+  });
+});
+
+describe("ciclo de gravacao", () => {
+  it("iniciar abre o microfone no Rust e devolve a taxa real do dispositivo", async () => {
+    invokeMock.mockResolvedValue({ taxa_hz: 48_000, canais: 1 });
+
+    const info = await iniciarGravacao();
+
+    expect(info).toEqual({ taxa_hz: 48_000, canais: 1 });
+    // Sem argumentos: nao ha nada que o TS possa configurar na captura.
+    expect(invokeMock).toHaveBeenCalledWith("microfone_iniciar");
+  });
+
+  it("permissao negada pelo Windows chega tipada como `microfone`", async () => {
+    invokeMock.mockRejectedValue({
+      tipo: "microfone",
+      mensagem:
+        "O Windows negou o acesso ao microfone. Abra Configuracoes > " +
+        "Privacidade e seguranca > Microfone.",
+    });
+
+    const erro = await iniciarGravacao().catch((e) => e);
+
+    expect(erro).toBeInstanceOf(ErroStt);
+    expect(erro.tipo).toBe("microfone");
+    expect(erro.message).toContain("Privacidade e seguranca");
+  });
+
+  it("parar devolve o texto — nenhum PCM atravessa o IPC", async () => {
+    invokeMock.mockResolvedValue("abrir a calculadora");
+
+    const texto = await pararGravacaoETranscrever();
+
+    expect(texto).toBe("abrir a calculadora");
+    expect(invokeMock).toHaveBeenCalledWith("microfone_parar_e_transcrever", {
+      modelo: MODELO_STT_PADRAO,
+    });
+    // O unico argumento e o nome do modelo: nada de amostras de audio.
+    expect(invokeMock.mock.calls[0][1]).toEqual({ modelo: MODELO_STT_PADRAO });
+  });
+
+  it("modelo explicito e repassado — a troca small/base e runtime", async () => {
+    invokeMock.mockResolvedValue("oi");
+
+    await pararGravacaoETranscrever("base");
+
+    expect(invokeMock).toHaveBeenCalledWith(
+      "microfone_parar_e_transcrever",
+      expect.objectContaining({ modelo: "base" }),
+    );
+  });
+
+  it("modelo nao baixado vira ErroStt `modelo_ausente` com a mensagem do Rust", async () => {
+    invokeMock.mockRejectedValue({
+      tipo: "modelo_ausente",
+      mensagem:
+        'O modelo de voz "small" ainda nao foi baixado. Baixe o modelo antes ' +
+        "de usar o microfone.",
+    });
+
+    const erro = await pararGravacaoETranscrever().catch((e) => e);
+
+    expect(erro).toBeInstanceOf(ErroStt);
+    expect(erro.tipo).toBe("modelo_ausente");
+    expect(erro.message).toContain("ainda nao foi baixado");
+  });
+
+  it("tipo fora do contrato preserva a mensagem mas cai em `desconhecido`", async () => {
+    invokeMock.mockRejectedValue({
+      tipo: "algo_que_este_wrapper_nao_conhece",
+      mensagem: "Mensagem que o Rust ja escreveu para o usuario.",
+    });
+
+    const erro = await pararGravacaoETranscrever().catch((e) => e);
+
+    expect(erro.tipo).toBe("desconhecido");
+    expect(erro.message).toBe("Mensagem que o Rust ja escreveu para o usuario.");
+  });
+
+  it("erro cru do IPC vira `desconhecido` com mensagem generica e causa preservada", async () => {
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
+    invokeMock.mockRejectedValue("panicked at ...");
+
+    const erro = await pararGravacaoETranscrever().catch((e) => e);
+
+    expect(erro.tipo).toBe("desconhecido");
+    expect(erro.message).toBe("O motor de voz falhou de forma inesperada.");
+    expect(erro.causa).toBe("panicked at ...");
+    expect(consoleError).toHaveBeenCalled();
+    consoleError.mockRestore();
+  });
+
+  it("cancelar chama o Rust e NUNCA rejeita — quem limpa nao trata erro", async () => {
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
+    invokeMock.mockResolvedValue(undefined);
+
+    await expect(cancelarGravacao()).resolves.toBeUndefined();
+    expect(invokeMock).toHaveBeenCalledWith("microfone_cancelar");
+
+    invokeMock.mockRejectedValue({ tipo: "gravacao", mensagem: "nada aberto" });
+    await expect(cancelarGravacao()).resolves.toBeUndefined();
+    expect(consoleError).toHaveBeenCalled();
+    consoleError.mockRestore();
   });
 });
