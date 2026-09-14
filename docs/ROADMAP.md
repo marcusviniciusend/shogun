@@ -4,7 +4,7 @@
 > surgirem. Quando divergir do código, o código vence — e este arquivo precisa
 > ser corrigido.
 >
-> Última atualização: 2026-09-11.
+> Última atualização: 2026-09-13.
 
 ---
 
@@ -100,6 +100,37 @@ estar atualizada antes do merge. Na última execução (13/09/2026, `dev` em
 desktop — suíte vitest própria desde o PR #41, check obrigatório do CI
 desde o #42. A paridade entre `shared/python` e `shared/ts` é
 verificada por teste (parse estático do TS, sem toolchain Node no CI).
+
+**Lacuna conhecida: o build Rust/Tauri não é validado automaticamente.** Os
+três checks obrigatórios são `pytest (3.11)`, `pytest (3.13)` e
+`vitest (desktop)` — **nenhum job roda `cargo`**. O `vitest` exercita módulo
+puro, com o plugin de shell mockado, justamente para não precisar da toolchain
+Rust; o efeito colateral é que nada no CI compila o `desktop/src-tauri`. Uma
+quebra do lado Rust passa verde e só aparece na máquina de quem for compilar.
+
+Não é hipotético: o `whisper-rs` que entrou no PR #63 trouxe dois requisitos de
+build (CMake e libclang, para o `bindgen`) que ficaram sem registro, e o atalho
+`WHISPER_DONT_GENERATE_BINDINGS=1` falha no Windows com `E0080` — os bindings
+pré-gerados do crate vieram do Linux e os asserts de layout da glibc
+(`_IO_FILE`, `_G_fpos_t`) não fecham com o MSVC. Nada disso apareceu no CI. O
+que fechou a parte documental foi a seção "Pré-requisitos de build nativo" do
+`desktop/README.md` e o `scripts/checar_ambiente_desktop.py`; a parte de
+validação automática continua aberta.
+
+Custo de fechar: um job novo com toolchain Rust (`dtolnay/rust-toolchain`),
+CMake e LLVM instalados no runner, `Swatinem/rust-cache` para não recompilar a
+árvore do Tauri a cada push, e `cargo check` em `desktop/src-tauri`. Em
+`windows-latest` — a plataforma que realmente importa, já que é onde o `E0080`
+acontece — minutos de runner contam **2×** na cota do GitHub Actions, e o
+primeiro build sem cache passa de dez minutos. Em `ubuntu-latest` seria barato,
+mas validaria a plataforma errada.
+
+**Decisão em aberto, não bloqueante.** As opções são: (a) job de `cargo check`
+em `windows-latest` a cada PR; (b) o mesmo job só em `schedule` noturno ou
+manual (`workflow_dispatch`), pegando a quebra em até um dia sem custo por PR;
+(c) manter como está e confiar no `checar_ambiente_desktop.py` mais a compilação
+local antes do merge. Vale reavaliar quando o STT sair do papel na v1.1 — é ele
+que trouxe a primeira dependência nativa pesada do projeto.
 
 ### O que ainda falta para chamar de v1.0
 
