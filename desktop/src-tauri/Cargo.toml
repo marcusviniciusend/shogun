@@ -28,6 +28,16 @@ tauri-plugin-shell = "2"
 tauri-plugin-store = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+# motor de STT local (docs/stt-desktop-design.md): whisper.cpp em CPU via
+# binding — sem feature de GPU DE PROPOSITO, a VRAM ja e do LLM local.
+# Exige CMake + MSVC no build; com WHISPER_DONT_GENERATE_BINDINGS=1 os
+# bindings pre-gerados do crate dispensam o libclang.
+whisper-rs = "0.16"
+# download do modelo ggml no primeiro uso, em streaming com progresso.
+# Mesma versao que o tauri-plugin-http ja traz na arvore — custo marginal.
+reqwest = "0.12"
+# validacao de integridade (SHA-256) do modelo baixado
+sha2 = "0.10"
 
 
 # Read the optimization guideline for more details: https://tauri.app/concept/size/#cargo-configuration
