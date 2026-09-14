@@ -83,6 +83,81 @@ com o worktree do agente; remover o worktree deixa a branch para trás),
 removidas à mão com `git branch -d` — todas mergeadas, o `-d` confirmou. A
 cobertura desses órfãos entrou no script na sequência (esta versão).
 
+## `checar_ambiente_desktop.py` — diagnóstico do build nativo do desktop
+
+Diz por que o `cargo build` do `desktop/src-tauri` vai falhar **antes** de você
+esperar a compilação chegar lá. Desde o PR #63 o desktop depende de
+`whisper-rs`, cujo build script compila o whisper.cpp com **CMake** e gera os
+bindings com **bindgen**, que precisa de uma **libclang**. Nenhum dos dois vem
+com o rustup, e os dois falham dentro de um build script — longe do que a
+pessoa fez, com mensagem que não diz o que instalar.
+
+**Diagnóstico, não instalação.** O script só lê a máquina: não instala, não
+baixa e não escreve variável de ambiente nenhuma. Decisão deliberada — instalar
+LLVM (~3 GB, com admin) ou mexer no ambiente do usuário é escolha do dono da
+máquina, não de um script de repositório. O que ele faz é tirar a tentativa e
+erro do caminho: aponta o que falta, onde a coisa já está escondida na máquina,
+e imprime a linha pronta para colar.
+
+O que confere: `cargo`, `npm`, `cmake` (PATH → variável `CMAKE` → CMake
+embutido no Visual Studio, que existe mas não entra no PATH) e `libclang`
+(`LIBCLANG_PATH` → LLVM de sistema → wheel `libclang` do pip, varrendo **todos**
+os Python do PATH, não só o primeiro).
+
+### Como rodar
+
+A partir da raiz do repositório (Python 3.11+, stdlib apenas; Git Bash ou
+PowerShell). Sai com **exit 1** enquanto faltar algo.
+
+```bash
+python scripts/checar_ambiente_desktop.py             # só o diagnóstico
+python scripts/checar_ambiente_desktop.py --exports   # + variáveis prontas para colar
+```
+
+Saída real desta máquina antes de configurar qualquer coisa:
+
+```
+Ambiente de build do desktop (npm run tauri dev/build)
+--------------------------------------------------------
+OK     cargo (rustup): C:\Users\vivil\.cargo\bin\cargo.EXE - cargo 1.97.1
+OK     npm (Node.js): C:\Program Files\nodejs\npm.cmd - v11.12.1
+FALTA  cmake: fora do PATH, mas existe no Visual Studio: C:\Program Files (x86)\...\CMake\bin\cmake.exe
+         -> Aponte a variavel CMAKE para ele (ou acrescente a pasta ao PATH) - veja --exports
+FALTA  libclang (bindgen): nenhuma libclang na maquina (sem LLVM de sistema, sem wheel do pip)
+         -> winget install LLVM.LLVM      # recomendado; precisa de admin e ~3 GB
+         -> python -m pip install libclang # alternativa sem admin
+--------------------------------------------------------
+2 item(ns) faltando - `cargo build` do desktop vai falhar.
+```
+
+E depois, com as duas variáveis exportadas (exit 0):
+
+```
+OK     cmake: CMAKE=C:\Program Files (x86)\...\cmake.exe - cmake version 3.31.6-msvc6
+OK     libclang (bindgen): LIBCLANG_PATH=...\Python314\Lib\site-packages\clang\native -> libclang.dll
+--------------------------------------------------------
+Tudo pronto. `cargo check` em desktop/src-tauri deve passar.
+```
+
+Esse estado verde é o mesmo sob o qual `cargo check` e `cargo build` foram
+verificados em 13/09/2026 (`dev` em `8cbd9df`).
+
+### Limites conhecidos
+
+- **Não testa a compilação.** Ele confere presença e legibilidade das
+  ferramentas, não se elas funcionam juntas; quem responde isso é
+  `cargo clean -p whisper-rs-sys && cargo check`.
+- **Escrito para Windows.** Em Linux/macOS ele degrada para "procure no
+  gerenciador de pacotes" em vez de dar o comando exato — a máquina de
+  desenvolvimento do projeto é Windows, e é lá que as duas falhas doem.
+- **Sem teste automatizado no CI** (mesma limitação consciente dos outros dois
+  scripts daqui).
+
+O contexto completo — os erros reais de cada ausência, por que o atalho
+`WHISPER_DONT_GENERATE_BINDINGS=1` não funciona no Windows, e a ressalva de
+amarrar o build a um `site-packages` — está em `desktop/README.md`, seção
+"Pré-requisitos de build nativo".
+
 ## `fila_revisao.py` — fila de revisão consolidada
 
 Gera uma página única em markdown com tudo que a sessão de revisão precisa:

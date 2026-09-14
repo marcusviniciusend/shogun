@@ -93,9 +93,6 @@ src-tauri/                # shell Rust (plugins http e store, sem comando custom
 
 ## Rodando
 
-Pré-requisitos: Node.js 20+, Rust (rustup) e as
-[dependências de sistema do Tauri](https://tauri.app/start/prerequisites/).
-
 ```bash
 cd desktop
 npm install
@@ -106,3 +103,187 @@ Suba o `server/` antes (veja `server/README.md`) e aponte a URL e o token na
 tela de configurações do app.
 
 Build de distribuição: `npm run tauri build`.
+
+Antes do primeiro `tauri dev`, leia a seção abaixo — desde que o `whisper-rs`
+entrou, a compilação exige duas coisas que **não vêm com o rustup**.
+
+## Pré-requisitos de build nativo
+
+> **Isto vale só para compilar o Rust** — `npm run tauri dev` e
+> `npm run tauri build`. **`npm test` (vitest) não precisa de nada disto**: a
+> suíte do desktop é de módulo puro, com o plugin de shell do Tauri mockado, e
+> nunca toca na toolchain Rust. Como a maior parte das tarefas do desktop é
+> TypeScript coberto por vitest, dá para trabalhar bastante aqui sem montar
+> este ambiente. Monte-o quando precisar rodar o app de verdade.
+
+Base: **Node.js 20+**, **Rust (rustup)** e as
+[dependências de sistema do Tauri](https://tauri.app/start/prerequisites/) —
+no Windows, isso significa o **MSVC Build Tools** e o **WebView2**.
+
+Além disso, o `src-tauri` depende de `whisper-rs` (motor de STT local, veja
+`docs/stt-desktop-design.md`), e o build script dele faz duas coisas que
+precisam de ferramenta externa:
+
+1. **compila o whisper.cpp com CMake** — e o `cmake` precisa estar achável;
+2. **gera os bindings com `bindgen`** — que carrega uma **libclang** em tempo
+   de build.
+
+Nenhuma das duas é instalada pelo rustup, e nenhuma delas falha com uma
+mensagem que diga o que fazer. O que segue é o caminho verificado nesta
+máquina, do zero.
+
+### Checagem automática
+
+Antes de sair instalando, rode o diagnóstico — ele não instala nada, só olha a
+máquina e imprime as variáveis prontas para colar:
+
+```bash
+python scripts/checar_ambiente_desktop.py --exports
+```
+
+Sai com código 1 enquanto faltar algo. Detalhes em `scripts/README.md`.
+
+### 1. CMake
+
+O `cmake` **não precisa ser instalado** na maioria das máquinas Windows deste
+projeto: o Visual Studio Build Tools 2022 (que você já tem, porque o Tauri
+exige o MSVC) traz um embutido — ele só **não entra no PATH**. Nesta máquina
+ele está em:
+
+```
+C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe
+```
+
+Duas formas de apontar para ele, ambas aceitas pelo crate `cmake` que o build
+script usa:
+
+- **variável `CMAKE`**, apontando para o executável (preferida — é cirúrgica,
+  não mexe no PATH e é a que está verificada aqui);
+- ou acrescentar a pasta `bin` ao `PATH`.
+
+```powershell
+# PowerShell, permanente
+[Environment]::SetEnvironmentVariable("CMAKE", "C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe", "User")
+```
+
+Se a máquina não tiver Visual Studio, `winget install Kitware.CMake` resolve e
+já entra no PATH.
+
+**Sintoma de CMake ausente** — o build script do `whisper-rs-sys` despeja todas
+as variáveis que procurou (todas `None`) e termina assim:
+
+```
+  running: "cmake" "-Wdev" "--debug-output" "...\out\whisper.cpp" "-B" ... "-G" "Visual Studio 17 2022" ...
+
+  thread 'main' panicked at ...\cmake-0.1.58\src\lib.rs:1132:5:
+
+  failed to execute command: program not found
+  is `cmake` not installed?
+```
+
+### 2. libclang (para o bindgen)
+
+Esta é a que pega todo mundo: **o bindgen precisa de uma `libclang.dll`, e ela
+não existe numa instalação limpa de Windows + rustup + MSVC.** O `clang` que o
+MSVC traz não serve — não é a biblioteca compartilhada que o bindgen carrega.
+
+Há dois caminhos. **O verificado nesta máquina foi o segundo**; o primeiro é o
+recomendado para uma configuração permanente, mas não foi exercitado aqui
+(instalar LLVM pede privilégio de administrador e ~3 GB, e essa é uma decisão
+de quem é dono da máquina).
+
+**a) LLVM de sistema — recomendado, não verificado aqui**
+
+```powershell
+winget install LLVM.LLVM   # pacote LLVM.LLVM, hoje na versão 22.1.8
+[Environment]::SetEnvironmentVariable("LIBCLANG_PATH", "C:\Program Files\LLVM\bin", "User")
+```
+
+Estável e independente de Python. O custo é instalar ~3 GB de toolchain na
+máquina, com admin.
+
+**b) Wheel `libclang` do pip — o caminho verificado**
+
+```powershell
+python -m pip install libclang
+[Environment]::SetEnvironmentVariable("LIBCLANG_PATH", "<site-packages>\clang\native", "User")
+```
+
+Sem admin, ~25 MB. Nesta máquina, com o Python de usuário
+(`...\Programs\Python\Python314`), o caminho ficou:
+
+```
+C:\Users\<voce>\AppData\Local\Programs\Python\Python314\Lib\site-packages\clang\native
+```
+
+O jeito de descobrir o seu, sem adivinhar:
+
+```bash
+python -c "import clang, os; print(os.path.join(os.path.dirname(clang.__file__), 'native'))"
+```
+
+**A ressalva deste caminho:** ele amarra o build Rust a um `site-packages`
+específico. Trocar de versão do Python, recriar o venv ou instalar a wheel num
+ambiente efêmero quebra o build sem aviso — foi exatamente o que aconteceu
+depois do PR #63, cujo ambiente de build saiu junto com o worktree que o criou.
+Instale a wheel no **Python de usuário permanente**, nunca num venv
+descartável. Se for montar esta máquina para durar, prefira o LLVM de sistema.
+
+**Sintoma de libclang ausente:**
+
+```
+  thread 'main' panicked at ...\bindgen-0.72.1\lib.rs:616:27:
+  Unable to find libclang: "couldn't find any valid shared libraries matching:
+  ['clang.dll', 'libclang.dll'], set the `LIBCLANG_PATH` environment variable to
+  a path where one of these files can be found (invalid: [])"
+```
+
+### Por que não dá para pular o bindgen
+
+O `whisper-rs-sys` aceita `WHISPER_DONT_GENERATE_BINDINGS=1` para usar os
+bindings pré-gerados que vêm no crate, o que dispensaria a libclang. **No
+Windows isso não funciona**: os bindings do crate foram gerados no Linux, e os
+asserts de layout da glibc que eles carregam não fecham com o MSVC. O resultado
+é falha de compilação, não de build script:
+
+```
+error[E0080]: attempt to compute `12_usize - 16_usize`, which would overflow
+   --> ...\out/bindings.rs:469:27
+469 |     ["Size of _G_fpos_t"][::std::mem::size_of::<_G_fpos_t>() - 16usize];
+
+error[E0080]: attempt to compute `208_usize - 216_usize`, which would overflow
+   --> ...\out/bindings.rs:547:26
+547 |     ["Size of _IO_FILE"][::std::mem::size_of::<_IO_FILE>() - 216usize];
+
+error: could not compile `whisper-rs-sys` (lib) due to 3 previous errors
+```
+
+`_IO_FILE` e `_G_fpos_t` são tipos de glibc — eles não deveriam nem aparecer
+num build MSVC. É o atalho denunciando a própria origem. Portanto: **a
+libclang é obrigatória no Windows.**
+
+### Conferindo que deu certo
+
+```bash
+cd desktop/src-tauri
+cargo check
+```
+
+Deve terminar em `Finished`. Se o `whisper-rs-sys` já tiver sido compilado
+antes, o build script fica em cache e o erro não reaparece mesmo com o ambiente
+errado; para testar de verdade a partir do zero, force:
+
+```bash
+cargo clean -p whisper-rs-sys && cargo check
+```
+
+Verificado nesta máquina em 13/09/2026, com `dev` em `8cbd9df`: `cargo check`
+limpo em ~27 s e `cargo build` em ~1 min 06 s, com `CMAKE` e `LIBCLANG_PATH`
+apontados como acima.
+
+### Isso não é validado pelo CI
+
+O workflow (`.github/workflows/tests.yml`) roda `pytest` e `vitest`, e **nenhum
+job roda `cargo`**. Uma quebra do lado Rust passa verde no CI e só aparece na
+máquina de quem compilar. Registrado como lacuna conhecida em
+[`docs/ROADMAP.md`](../docs/ROADMAP.md).
