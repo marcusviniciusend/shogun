@@ -284,7 +284,16 @@ export function Chat({
               }
             }}
           >
-            <span aria-hidden>声</span>
+            {/*
+              Microfone em vez do kanji 声: o glifo dizia "voz" para quem le
+              japones e nada para o resto. O rotulo de verdade continua no
+              aria-label/title do botao; o desenho e decorativo.
+            */}
+            <svg viewBox="0 0 20 20" aria-hidden>
+              <rect x="7.5" y="2.5" width="5" height="9" rx="2.5" />
+              <path d="M5 9.5a5 5 0 0 0 10 0" />
+              <path d="M10 14.5v3" />
+            </svg>
           </button>
         )}
         <button type="submit" disabled={carregando || bloqueado || !texto.trim()}>

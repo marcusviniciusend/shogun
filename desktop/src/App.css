@@ -587,13 +587,26 @@ body {
  * inequivoco de gravacao (§5.2).
  */
 .chat-falar {
-  font-size: 1.1rem;
+  display: flex;
+  align-items: center;
   font-weight: 400;
   padding: 0.35rem 0.2rem;
   color: var(--hai);
   /* Segurar o botao nao pode virar selecao de texto nem gesto de rolagem. */
   user-select: none;
   touch-action: none;
+}
+
+/* Mesmo traco dos icones da barra lateral (ver `.sidebar-item svg`). */
+.chat-falar svg {
+  display: block;
+  width: 1.15rem;
+  height: 1.15rem;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.4;
+  stroke-linecap: round;
+  stroke-linejoin: round;
 }
 
 .chat-falar:hover:not(:disabled) {
