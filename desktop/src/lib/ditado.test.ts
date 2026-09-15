@@ -1,12 +1,12 @@
 /**
- * Testes do fluxo de ditado (push-to-talk).
+ * Testes do fluxo de ditado (clique alterna: clique abre, clique fecha).
  *
  * As dependencias continuam injetadas — agora sao os comandos Tauri de
  * `lib/stt.ts` (abrir microfone, parar e transcrever, cancelar) em vez do
  * objeto `Captura` que o extinto `lib/microfone.ts` entregava. E o que mantem
- * estes testes sem mock de Tauri: o ciclo inteiro (segurar → gravar → soltar
+ * estes testes sem mock de Tauri: o ciclo inteiro (clicar → gravar → clicar
  * → transcrever → texto no fluxo de envio) roda no vitest, e o que sobra de
- * manual esta no bloco F9 do roteiro.
+ * manual esta no bloco F10 do roteiro.
  *
  * O que o vitest NAO alcanca e o mesmo teto de sempre, so que agora do outro
  * lado da fronteira: microfone de verdade, permissao do Windows e qualidade
@@ -39,8 +39,8 @@ describe("podeGravar", () => {
 
 describe("rotulos e status por estado", () => {
   it.each<[EstadoDitado, string]>([
-    ["ocioso", "Segurar para falar"],
-    ["gravando", "Gravando — solte para enviar"],
+    ["ocioso", "Clique para falar"],
+    ["gravando", "Gravando — clique para enviar"],
     ["transcrevendo", "Transcrevendo…"],
   ])("botao em %s: %s", (estado, rotulo) => {
     expect(rotuloBotao(estado)).toBe(rotulo);
@@ -48,7 +48,7 @@ describe("rotulos e status por estado", () => {
 
   it("status: ocioso fica em silencio, os outros explicam a fase", () => {
     expect(statusDitado("ocioso")).toBeNull();
-    expect(statusDitado("gravando")).toBe("Ouvindo — solte para enviar.");
+    expect(statusDitado("gravando")).toBe("Ouvindo — clique para enviar.");
     expect(statusDitado("transcrevendo")).toBe("Transcrevendo…");
   });
 });
