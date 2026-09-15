@@ -592,9 +592,8 @@ body {
   font-weight: 400;
   padding: 0.35rem 0.2rem;
   color: var(--hai);
-  /* Segurar o botao nao pode virar selecao de texto nem gesto de rolagem. */
+  /* Alternar rapido nao pode virar selecao de texto. */
   user-select: none;
-  touch-action: none;
 }
 
 /* Mesmo traco dos icones da barra lateral (ver `.sidebar-item svg`). */

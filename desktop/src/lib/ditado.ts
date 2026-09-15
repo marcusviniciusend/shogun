@@ -43,11 +43,11 @@ export function podeGravar(
 export function rotuloBotao(estado: EstadoDitado): string {
   switch (estado) {
     case "gravando":
-      return "Gravando — solte para enviar";
+      return "Gravando — clique para enviar";
     case "transcrevendo":
       return "Transcrevendo…";
     default:
-      return "Segurar para falar";
+      return "Clique para falar";
   }
 }
 
@@ -55,7 +55,7 @@ export function rotuloBotao(estado: EstadoDitado): string {
 export function statusDitado(estado: EstadoDitado): string | null {
   switch (estado) {
     case "gravando":
-      return "Ouvindo — solte para enviar.";
+      return "Ouvindo — clique para enviar.";
     case "transcrevendo":
       return "Transcrevendo…";
     default:
@@ -142,11 +142,11 @@ export interface SinaisDitado {
 }
 
 export interface ControleDitado {
-  /** Pressionou: cala o TTS e abre o microfone. No-op fora do ocioso. */
+  /** Primeiro clique: cala o TTS e abre o microfone. No-op fora do ocioso. */
   iniciar(): Promise<void>;
-  /** Soltou: fecha o mic, transcreve e entrega o texto. No-op sem gravacao. */
+  /** Segundo clique: fecha o mic, transcreve e entrega. No-op sem gravacao. */
   parar(): Promise<void>;
-  /** Aborta descartando o audio (ponteiro cancelado, troca de tela). */
+  /** Aborta descartando o audio (troca de tela, nova conversa, desmontagem). */
   cancelar(): void;
 }
 
@@ -154,12 +154,16 @@ export interface ControleDitado {
  * Cria o controlador de uma sessao de ditado. Um por componente basta: o
  * estado interno volta ao ocioso apos cada ciclo.
  *
- * A fase "abrindo" cobre a corrida real do push-to-talk: abrir o dispositivo
- * e assincrono (o cpal negocia formato com o WASAPI) e o usuario pode soltar
- * o botao antes de ele resolver. Soltar ou cancelar nesse intervalo DESCARTA
- * a captura — um toque rapido demais nao gravou nada que preste, e tratar
- * como desistencia evita mandar ruido de meio segundo para o motor. Descartar
- * aqui significa chamar `cancelarGravacao`: o dispositivo JA abriu do lado
+ * O ciclo e ALTERNADO, nao push-to-talk: um clique abre o microfone e ele
+ * fica aberto ate o clique seguinte. Segurar o botao cansa em ditado longo e
+ * prende o ponteiro numa janela que o usuario pode querer usar enquanto fala;
+ * alternar tambem entrega de graca o teclado, porque um <button> com onClick
+ * ja responde a espaco e enter sem handler nenhum.
+ *
+ * A fase "abrindo" cobre a corrida que sobrevive a troca: abrir o dispositivo
+ * e assincrono (o cpal negocia formato com o WASAPI) e o usuario pode desistir
+ * antes de ele resolver. `parar` ou `cancelar` nesse intervalo DESCARTA a
+ * captura — chamando `cancelarGravacao`, porque o dispositivo JA abriu do lado
  * Rust e ficaria aberto se ninguem o fechasse.
  */
 export function criarControleDitado(

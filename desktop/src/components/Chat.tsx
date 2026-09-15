@@ -130,14 +130,22 @@ export function Chat({
 
   const modeloAusente = modeloStt !== null && !modeloStt.presente;
 
-  function pressionarFalar() {
-    if (!controle || !podeGravar(estadoDitado, carregando, bloqueado)) return;
+  /**
+   * Um clique so, alternando: gravando fecha e transcreve, ocioso abre.
+   *
+   * Parar NAO passa por `podeGravar`: a checagem vale para COMECAR. Uma
+   * gravacao ja aberta precisa poder ser fechada mesmo que o servidor tenha
+   * caido no meio dela — senao o microfone ficaria preso.
+   */
+  function alternarFalar() {
+    if (!controle) return;
+    if (estadoDitado === "gravando") {
+      void controle.parar();
+      return;
+    }
+    if (!podeGravar(estadoDitado, carregando, bloqueado)) return;
     setErroDitado(null);
     void controle.iniciar();
-  }
-
-  function soltarFalar() {
-    void controle?.parar();
   }
 
   /**
@@ -245,10 +253,10 @@ export function Chat({
         />
         {controle && (
           /*
-            Push-to-talk: segurar grava, soltar transcreve e envia. Os eventos
-            de ponteiro cobrem mouse e toque; o par keydown/keyup cobre teclado
-            (segurar espaco). O capture prende o pointerup mesmo se o cursor
-            sair do botao antes de soltar.
+            Ditado ALTERNADO: um clique abre o microfone, o proximo transcreve
+            e envia. Um onClick basta para mouse, toque e teclado — o <button>
+            ja dispara click no espaco e no enter, entao nao ha handler de
+            tecla nem captura de ponteiro para manter em sincronia.
           */
           <button
             type="button"
@@ -262,27 +270,7 @@ export function Chat({
               estadoDitado === "transcrevendo" ||
               (estadoDitado === "ocioso" && (carregando || bloqueado))
             }
-            onPointerDown={(e) => {
-              // So botao principal; preventDefault mantem o foco no input.
-              if (e.button !== 0) return;
-              e.preventDefault();
-              e.currentTarget.setPointerCapture(e.pointerId);
-              pressionarFalar();
-            }}
-            onPointerUp={() => soltarFalar()}
-            onPointerCancel={() => controle.cancelar()}
-            onKeyDown={(e) => {
-              if ((e.key === " " || e.key === "Enter") && !e.repeat) {
-                e.preventDefault();
-                pressionarFalar();
-              }
-            }}
-            onKeyUp={(e) => {
-              if (e.key === " " || e.key === "Enter") {
-                e.preventDefault();
-                soltarFalar();
-              }
-            }}
+            onClick={() => alternarFalar()}
           >
             {/*
               Microfone em vez do kanji 声: o glifo dizia "voz" para quem le
