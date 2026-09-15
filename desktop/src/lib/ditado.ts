@@ -1,11 +1,11 @@
 /**
- * Ditado — o fluxo de push-to-talk: segurar o botao grava, soltar transcreve,
- * o texto entra no MESMO caminho da mensagem digitada (`POST /comando`).
- * Decisoes aprovadas em docs/stt-desktop-design.md §5/§8.
+ * Ditado — o ciclo por clique: um clique abre o microfone, o proximo
+ * transcreve, e o texto entra no MESMO caminho da mensagem digitada
+ * (`POST /comando`). Decisoes aprovadas em docs/stt-desktop-design.md §5/§8.
  *
  * A maquina de estados (`ocioso → gravando → transcrevendo`, com a fase
- * interna `abrindo` para a corrida do push-to-talk) sobreviveu inteira a
- * troca da captura. O que mudou foi so o que ela aciona: antes um objeto
+ * interna `abrindo` para a corrida de abertura do dispositivo) sobreviveu
+ * inteira tanto a troca da captura quanto a troca do gesto. O que mudou foi so o que ela aciona: antes um objeto
  * `Captura` do `lib/microfone.ts` (getUserMedia + AudioWorklet no WebView2),
  * agora os comandos Tauri de `lib/stt.ts` — o microfone e o whisper vivem no
  * mesmo processo Rust e o PCM nunca chega ate aqui.
@@ -113,6 +113,50 @@ export function mensagemErroDitado(e: unknown, generica: string): FalhaDitado {
 export function textoUtil(bruto: string): string | null {
   const limpo = bruto.trim();
   return limpo === "" ? null : limpo;
+}
+
+/* ----------------------------------------------------------------- medidor */
+
+/** Quantas barras o medidor mostra — a janela que "anda" enquanto se fala. */
+export const BARRAS_MEDIDOR = 28;
+
+/**
+ * Altura da barra (0..100) para um pico de amplitude (0..1).
+ *
+ * A raiz quadrada existe porque fala normal bate em 0,05–0,4 de amplitude:
+ * numa escala linear o medidor ficaria rastejando no chao e ninguem saberia
+ * se o microfone pegou. A raiz aproxima a percepcao de volume, que e
+ * logaritmica, sem o custo de um log de verdade.
+ *
+ * O piso de 6 nao e enfeite: uma barra de altura zero e indistinguivel de
+ * "medidor quebrado". O fio de cabelo diz "estou ouvindo, e esta silencio" —
+ * que e informacao diferente.
+ */
+export function alturaBarra(pico: number): number {
+  if (!Number.isFinite(pico) || pico <= 0) return 6;
+  return Math.max(6, Math.min(100, Math.round(Math.sqrt(Math.min(pico, 1)) * 100)));
+}
+
+/** Janela deslizante: entra o pico novo, sai o mais antigo passado o teto. */
+export function empurrarNivel(
+  historico: readonly number[],
+  pico: number,
+  maximo = BARRAS_MEDIDOR,
+): number[] {
+  const proximo = [...historico, alturaBarra(pico)];
+  return proximo.length <= maximo ? proximo : proximo.slice(proximo.length - maximo);
+}
+
+/**
+ * Duracao em `m:ss`, no formato de cronometro de gravacao.
+ *
+ * Trunca em vez de arredondar: o cronometro nunca pode mostrar um segundo
+ * que ainda nao foi gravado.
+ */
+export function formatarDuracao(segundos: number): string {
+  const total = Number.isFinite(segundos) && segundos > 0 ? Math.floor(segundos) : 0;
+  const minutos = Math.floor(total / 60);
+  return `${minutos}:${String(total % 60).padStart(2, "0")}`;
 }
 
 /* ------------------------------------------------------------- controlador */

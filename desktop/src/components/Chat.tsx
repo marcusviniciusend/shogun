@@ -3,6 +3,8 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import samuraiSprite from "../assets/samurai-run7.png";
 import {
   criarControleDitado,
+  empurrarNivel,
+  formatarDuracao,
   podeGravar,
   rotuloBotao,
   statusDitado,
@@ -15,6 +17,7 @@ import {
   formatarProgresso,
   iniciarGravacao,
   megabytes,
+  nivelMicrofone,
   pararGravacaoETranscrever,
   statusModeloStt,
   type ProgressoDownloadStt,
@@ -37,6 +40,15 @@ function Selo() {
     </span>
   );
 }
+
+/**
+ * De quanto em quanto tempo a UI pergunta o nivel ao Rust enquanto grava.
+ *
+ * 70 ms dao ~14 leituras por segundo: rapido o bastante para a barra
+ * acompanhar a silaba, e lento o bastante para as 28 barras cobrirem ~2 s de
+ * fala — a mesma janela curta que o medidor do WhatsApp mostra.
+ */
+const INTERVALO_MEDIDOR_MS = 70;
 
 interface Props {
   mensagens: MensagemChat[];
@@ -65,10 +77,13 @@ export function Chat({
   const [texto, setTexto] = useState("");
   const fimRef = useRef<HTMLDivElement>(null);
 
-  // ---- ditado (push-to-talk). Toda a decisao vive em lib/ditado.ts; aqui e
-  // so fiacao de eventos de ponteiro/teclado para o controlador.
+  // ---- ditado (clique alterna). Toda a decisao vive em lib/ditado.ts; aqui
+  // e so fiacao do clique e do medidor para o controlador.
   const [estadoDitado, setEstadoDitado] = useState<EstadoDitado>("ocioso");
   const [erroDitado, setErroDitado] = useState<string | null>(null);
+  // Medidor ao vivo: alturas ja prontas para a barra e a duracao do audio.
+  const [niveis, setNiveis] = useState<number[]>([]);
+  const [duracao, setDuracao] = useState(0);
   // Modelo de voz ausente NAO e um erro comum: e a primeira execucao, e o
   // que falta e um download de algumas centenas de MB. Sai do erro generico
   // para virar oferta com progresso (ver `FalhaDitado.modeloAusente`).
@@ -109,6 +124,36 @@ export function Chat({
   );
   // Desmontar no meio de uma gravacao nao pode deixar microfone aberto.
   useEffect(() => () => controle?.cancelar(), [controle]);
+
+  /*
+    Medidor ao vivo enquanto grava.
+
+    E POLL, nao evento empurrado, por uma restricao do outro lado: a thread de
+    audio do cpal nao pode alocar nem fazer I/O, e emitir evento Tauri de
+    dentro dela faria as duas coisas. Entao o Rust so guarda o pico corrente
+    (`Acumulador::pico_parcial`) e quem paga o custo e esta tela, perguntando
+    quando quer. Sair de "gravando" zera tudo: o medidor nao pode continuar
+    exibindo o eco da gravacao anterior.
+  */
+  useEffect(() => {
+    if (estadoDitado !== "gravando") {
+      setNiveis([]);
+      setDuracao(0);
+      return;
+    }
+    let vivo = true;
+    const id = setInterval(() => {
+      void nivelMicrofone().then((nivel) => {
+        if (!vivo || nivel === null) return;
+        setNiveis((atuais) => empurrarNivel(atuais, nivel.pico));
+        setDuracao(nivel.segundos);
+      });
+    }, INTERVALO_MEDIDOR_MS);
+    return () => {
+      vivo = false;
+      clearInterval(id);
+    };
+  }, [estadoDitado]);
 
   // Havendo motor, pergunta ao Rust se o modelo ja esta no disco — um stat,
   // barato. E o que faz a oferta de download aparecer ANTES da primeira
@@ -288,6 +333,21 @@ export function Chat({
           {carregando ? "Aguardando…" : "Enviar"}
         </button>
       </form>
+      {controle && estadoDitado === "gravando" && (
+        /*
+          Cronometro + barras. `aria-hidden` porque a linha de status logo
+          abaixo ja diz "Ouvindo" para quem le por leitor de tela — anunciar
+          uma barra que muda 14x por segundo seria ruido, nao informacao.
+        */
+        <div className="chat-medidor" aria-hidden>
+          <span className="chat-medidor-tempo">{formatarDuracao(duracao)}</span>
+          <span className="chat-medidor-barras">
+            {niveis.map((altura, i) => (
+              <i key={i} style={{ height: `${altura}%` }} />
+            ))}
+          </span>
+        </div>
+      )}
       {controle && (statusDitado(estadoDitado) !== null || erroDitado) && (
         <p
           className={`chat-ditado-status${

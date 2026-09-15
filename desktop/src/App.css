@@ -635,6 +635,56 @@ body {
 }
 
 /* Linha de status do ditado (Ouvindo… / Transcrevendo… / erro de captura). */
+/*
+  Medidor de gravacao: cronometro a esquerda, barras de nivel a direita.
+
+  As barras usam --bengara porque sao o mesmo sinal que o icone pulsando — o
+  microfone esta ABERTO. E o unico uso de bengara que nao e erro, e vale por
+  isso mesmo: e a cor que a paleta reserva para "preste atencao nisto agora".
+
+  `align-items: flex-end` faz as barras crescerem do chao para cima, que e
+  como um medidor de volume e lido; no topo elas pareceriam estalactites.
+*/
+.chat-medidor {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  margin: 0.5rem 0 0;
+}
+
+.chat-medidor-tempo {
+  font-variant-numeric: tabular-nums;
+  font-size: 0.8rem;
+  color: var(--bengara);
+  /* Tabular ja alinha os digitos; a largura minima segura o salto de 9 para
+     10 segundos, quando o texto ganha um caractere. */
+  min-width: 2.2rem;
+}
+
+.chat-medidor-barras {
+  display: flex;
+  align-items: flex-end;
+  gap: 2px;
+  height: 1.1rem;
+  flex: 1 1 auto;
+}
+
+.chat-medidor-barras i {
+  width: 3px;
+  min-height: 2px;
+  border-radius: 1px;
+  background: var(--bengara);
+  /* A transicao cobre o intervalo entre leituras (70 ms): sem ela a barra
+     pularia em degraus visiveis em vez de acompanhar a voz. */
+  transition: height 70ms linear;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .chat-medidor-barras i {
+    transition: none;
+  }
+}
+
 .chat-ditado-status {
   margin: 0.4rem 0 0;
   font-size: 0.8rem;
