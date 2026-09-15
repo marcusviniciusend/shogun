@@ -278,3 +278,27 @@ export async function cancelarGravacao(): Promise<void> {
     console.error("[shogun] stt: cancelar gravacao falhou:", traduzirErro(e));
   }
 }
+
+/** Pico e duracao da captura em andamento, como o Rust os reporta. */
+export interface NivelMicrofone {
+  /** Maior amplitude absoluta (0..1) desde a leitura anterior. */
+  pico: number;
+  /** Duracao ja capturada, em segundos, contada em amostras. */
+  segundos: number;
+}
+
+/**
+ * Espia a gravacao em andamento para o medidor. `null` quando nao ha nenhuma.
+ *
+ * Nunca rejeita, pelo mesmo motivo de `cancelarGravacao`: isto roda em laco
+ * enquanto se grava, e uma falha de leitura do medidor nao pode derrubar a
+ * gravacao nem encher o console. Ler ZERA a janela do pico no Rust — ha um
+ * consumidor so.
+ */
+export async function nivelMicrofone(): Promise<NivelMicrofone | null> {
+  try {
+    return (await invoke<NivelMicrofone | null>("microfone_nivel")) ?? null;
+  } catch {
+    return null;
+  }
+}

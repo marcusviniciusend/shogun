@@ -20,6 +20,7 @@ pub fn run() {
             microfone::microfone_iniciar,
             microfone::microfone_parar_e_transcrever,
             microfone::microfone_cancelar,
+            microfone::microfone_nivel,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

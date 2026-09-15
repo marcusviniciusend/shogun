@@ -13,14 +13,16 @@
 //!
 //! ## O ciclo
 //!
-//! Tres comandos, no molde dos de `stt.rs`:
+//! Quatro comandos, no molde dos de `stt.rs`:
 //!
 //! - `microfone_iniciar` abre o dispositivo de entrada padrao e comeca a
-//!   acumular amostras (push-to-talk pressionado);
+//!   acumular amostras (primeiro clique no botao de microfone);
 //! - `microfone_parar_e_transcrever` fecha o dispositivo, reamostra o
-//!   acumulado para 16 kHz e entrega direto ao motor (push-to-talk solto);
+//!   acumulado para 16 kHz e entrega direto ao motor (clique seguinte);
 //! - `microfone_cancelar` fecha o dispositivo e DESCARTA o audio (o usuario
-//!   desistiu, a tela trocou, o componente desmontou).
+//!   desistiu, a tela trocou, o componente desmontou);
+//! - `microfone_nivel` espia a captura em andamento (pico e duracao) para o
+//!   medidor da UI, sem tocar no PCM.
 //!
 //! Parar e transcrever sao UM comando so de proposito: entre os dois passos
 //! nao existe nada que o frontend possa fazer com o PCM — e a unica coisa
@@ -59,9 +61,10 @@ use crate::stt::{ErroStt, EstadoStt};
 /// Taxa que o whisper.cpp exige — o destino de toda reamostragem.
 pub const TAXA_ALVO_HZ: u32 = 16_000;
 
-/// Teto de duracao de UMA gravacao. Push-to-talk de comando nao chega perto
-/// disso; o limite existe para que um botao preso (ou um `pointerup` que se
-/// perdeu) nao encha a memoria com audio que ninguem pediu.
+/// Teto de duracao de UMA gravacao. Um comando falado nao chega perto disso;
+/// o limite existe para que uma gravacao esquecida aberta — o risco que o
+/// ciclo por clique cria, ja que nao ha botao solto para encerra-la — nao
+/// encha a memoria com audio que ninguem pediu.
 const MAXIMO_SEGUNDOS: u32 = 120;
 
 /// Quanto esperar o backend de audio inicializar o fluxo antes de desistir.
@@ -150,6 +153,13 @@ pub fn pico_absoluto(pcm: &[f32]) -> f32 {
 pub struct Acumulador {
     amostras: Vec<f32>,
     limite: usize,
+    /// Maior amplitude absoluta vista desde a ultima leitura do medidor.
+    ///
+    /// Vive aqui, e nao num evento emitido pelo callback, porque a thread de
+    /// audio nao pode alocar nem fazer I/O (ver `construir_stream`): emitir
+    /// evento Tauri de dentro dela faria as duas coisas. Um `max` por quadro
+    /// e gratuito; quem paga o custo e a UI, perguntando quando quer.
+    pico_parcial: f32,
 }
 
 impl Acumulador {
@@ -157,7 +167,20 @@ impl Acumulador {
         Self {
             amostras: Vec::new(),
             limite,
+            pico_parcial: 0.0,
         }
+    }
+
+    /// Amostras ja capturadas — a duracao real do que sera transcrito.
+    pub fn quantidade(&self) -> usize {
+        self.amostras.len()
+    }
+
+    /// Entrega o pico acumulado e zera a janela, para a proxima leitura medir
+    /// so o intervalo seguinte. Sem o reset o medidor viraria uma catraca,
+    /// presa no grito mais alto da gravacao inteira.
+    pub fn tomar_pico(&mut self) -> f32 {
+        std::mem::replace(&mut self.pico_parcial, 0.0)
     }
 
     /// Anexa um bloco intercalado ja mesclado para mono. Passado o teto, o
@@ -173,7 +196,9 @@ impl Acumulador {
             if self.amostras.len() >= self.limite {
                 return;
             }
-            self.amostras.push(media_quadro(quadro, canais));
+            let amostra = media_quadro(quadro, canais);
+            self.pico_parcial = self.pico_parcial.max(amostra.abs());
+            self.amostras.push(amostra);
         }
     }
 
@@ -450,6 +475,44 @@ pub async fn microfone_parar_e_transcrever(
     crate::stt::transcrever_pcm(&app, stt.inner(), pcm, modelo.as_deref()).await
 }
 
+/// O que o medidor da UI precisa saber sobre a captura em andamento.
+#[derive(Clone, Copy, serde::Serialize)]
+pub struct NivelMicrofone {
+    /// Maior amplitude absoluta (0.0..=1.0) desde a leitura anterior.
+    pub pico: f32,
+    /// Duracao ja capturada, em segundos.
+    ///
+    /// Sai da contagem de amostras, nao de um relogio do JS: e o tempo do
+    /// audio que sera de fato transcrito. Um travamento da thread de audio
+    /// congela este numero, que e a verdade — um cronometro de parede
+    /// continuaria subindo e mentiria que esta gravando.
+    pub segundos: f32,
+}
+
+/// Le o nivel da gravacao em andamento. `None` quando nao ha nenhuma.
+///
+/// Feito para ser chamado em laco pela UI (~15x/s): nao aloca, nao copia PCM
+/// e devolve dois numeros. Ler tambem ZERA a janela do pico, entao duas
+/// leituras concorrentes se roubariam — ha um consumidor so, o medidor.
+#[tauri::command]
+pub async fn microfone_nivel(
+    estado: State<'_, EstadoMicrofone>,
+) -> Result<Option<NivelMicrofone>, ErroStt> {
+    let guarda = estado.sessao.lock().expect("mutex do microfone envenenado");
+    let Some(sessao) = guarda.as_ref() else {
+        return Ok(None);
+    };
+    let taxa_hz = sessao.taxa_hz;
+    let (pico, amostras) = {
+        let mut acumulador = sessao.buffer.lock().expect("mutex do acumulador envenenado");
+        (acumulador.tomar_pico(), acumulador.quantidade())
+    };
+    Ok(Some(NivelMicrofone {
+        pico,
+        segundos: amostras as f32 / taxa_hz as f32,
+    }))
+}
+
 /// Fecha o microfone DESCARTANDO o audio. Idempotente: sem gravacao em
 /// andamento e um no-op silencioso, porque quem cancela (desmontagem de
 /// componente, ponteiro cancelado) raramente sabe se havia algo aberto.
@@ -526,6 +589,35 @@ mod testes {
     }
 
     /* --- acumulador: o que era concatenarBlocos --- */
+
+    #[test]
+    fn pico_parcial_guarda_o_maior_absoluto_e_zera_ao_ser_lido() {
+        let mut acumulador = Acumulador::novo(1_000);
+        acumulador.empurrar(&[0.2f32, -0.7, 0.3], 1);
+        // O negativo vence: o medidor mede amplitude, nao sinal.
+        assert!((acumulador.tomar_pico() - 0.7).abs() < 1e-6);
+        // Ler zera a janela — sem isso o medidor ficaria preso no pico antigo.
+        assert_eq!(acumulador.tomar_pico(), 0.0);
+        acumulador.empurrar(&[0.1f32], 1);
+        assert!((acumulador.tomar_pico() - 0.1).abs() < 1e-6);
+    }
+
+    #[test]
+    fn pico_e_quantidade_nao_consomem_o_pcm() {
+        let mut acumulador = Acumulador::novo(1_000);
+        acumulador.empurrar(&[0.5f32, -0.5], 1);
+        acumulador.tomar_pico();
+        assert_eq!(acumulador.quantidade(), 2);
+        // O audio segue inteiro: o medidor le, nao rouba.
+        assert_eq!(acumulador.tomar(), vec![0.5, -0.5]);
+    }
+
+    #[test]
+    fn silencio_absoluto_mantem_o_pico_em_zero() {
+        let mut acumulador = Acumulador::novo(1_000);
+        acumulador.empurrar(&[0.0f32; 64], 1);
+        assert_eq!(acumulador.tomar_pico(), 0.0);
+    }
 
     #[test]
     fn acumulador_preserva_ordem_e_conteudo_dos_blocos() {
