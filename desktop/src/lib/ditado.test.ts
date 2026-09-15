@@ -16,7 +16,11 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
+  alturaBarra,
+  BARRAS_MEDIDOR,
   criarControleDitado,
+  empurrarNivel,
+  formatarDuracao,
   mensagemErroDitado,
   podeGravar,
   rotuloBotao,
@@ -50,6 +54,50 @@ describe("rotulos e status por estado", () => {
     expect(statusDitado("ocioso")).toBeNull();
     expect(statusDitado("gravando")).toBe("Ouvindo — clique para enviar.");
     expect(statusDitado("transcrevendo")).toBe("Transcrevendo…");
+  });
+});
+
+describe("medidor de nivel", () => {
+  it("silencio e lixo numerico viram o fio de cabelo, nunca zero", () => {
+    // Barra zerada seria indistinguivel de medidor quebrado.
+    for (const entrada of [0, -0.5, Number.NaN, Number.POSITIVE_INFINITY]) {
+      expect(alturaBarra(entrada)).toBe(6);
+    }
+  });
+
+  it("a escala e por raiz, entao fala baixa ja sai do chao", () => {
+    // 0,09 de amplitude e fala normal: linear daria 9%, a raiz da 30%.
+    expect(alturaBarra(0.09)).toBe(30);
+    expect(alturaBarra(0.25)).toBe(50);
+    expect(alturaBarra(1)).toBe(100);
+  });
+
+  it("amplitude acima de 1 satura em vez de estourar a barra", () => {
+    expect(alturaBarra(4)).toBe(100);
+  });
+
+  it("a janela anda: entra o novo, sai o mais antigo", () => {
+    let niveis: number[] = [];
+    for (let i = 0; i < BARRAS_MEDIDOR + 5; i++) {
+      niveis = empurrarNivel(niveis, 1);
+    }
+    expect(niveis).toHaveLength(BARRAS_MEDIDOR);
+  });
+
+  it("empurrar nao muda o historico recebido", () => {
+    const antes = [10, 20];
+    const depois = empurrarNivel(antes, 0.25);
+    expect(antes).toEqual([10, 20]);
+    expect(depois).toEqual([10, 20, 50]);
+  });
+
+  it("o cronometro trunca — nunca mostra segundo que nao foi gravado", () => {
+    expect(formatarDuracao(0)).toBe("0:00");
+    expect(formatarDuracao(0.99)).toBe("0:00");
+    expect(formatarDuracao(3.7)).toBe("0:03");
+    expect(formatarDuracao(65)).toBe("1:05");
+    expect(formatarDuracao(-4)).toBe("0:00");
+    expect(formatarDuracao(Number.NaN)).toBe("0:00");
   });
 });
 
