@@ -310,6 +310,20 @@ um componente React, nenhum plugin, nenhuma permissão. Limite real: exige a
 janela visível — para um assistente que se quer ambiente, é o degrau de
 entrada, não o destino.
 
+> **Decisão (15/09/2026): o botão alterna, não segura.** A v1.1 nasceu
+> segurar-para-falar e a primeira regressão manual derrubou essa escolha por
+> três motivos, nessa ordem: ditado longo cansa a mão; segurar prende o
+> ponteiro numa janela que o usuário pode querer usar enquanto fala; e o
+> teclado sai de graça, porque um `<button>` com `onClick` já responde a
+> espaço e enter — sem `keydown`/`keyup` com guarda de auto-repeat, sem
+> `setPointerCapture`, sem `pointercancel`. Os seis handlers viraram um.
+>
+> O que a troca **não** muda: `calar()` continua antes de abrir o microfone
+> (§5.3), e a fase `abrindo` continua descartando a captura de quem desiste
+> antes de o `cpal` resolver — ela cobre a corrida do dispositivo, não o
+> gesto. A hotkey global abaixo continua sendo push-to-talk de verdade e
+> segue no radar: alternar por clique e segurar por tecla global convivem.
+
 **Hotkey global (push-to-talk de verdade).** O Tauri 2 tem plugin oficial
 (`tauri-plugin-global-shortcut`) [externo: docs do Tauri]; o custo é a
 liturgia conhecida (Cargo + pacote JS + permissões novas no capabilities
