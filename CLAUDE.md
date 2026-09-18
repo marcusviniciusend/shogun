@@ -36,6 +36,7 @@ ajustado em `server/app/core/contracts.py` e em `server/tests/conftest.py`).
 | `mobile/`  | Cliente React Native. Ainda só o README. |
 | `shared/`  | Contratos compartilhados (`CommandRequest`, `CommandResponse`, `AgentAction`) — Pydantic em `shared/python`, TS em `shared/ts`. |
 | `docs/`    | Arquitetura e decisões técnicas. |
+| `.ai/`     | Camada de contexto dos agentes (L1/L2). Aponta, não duplica — comece por [`.ai/README.md`](.ai/README.md). |
 
 ### Servidor (`server/app/`)
 
@@ -185,17 +186,31 @@ qualquer merge** — nenhum agente faz merge.
 
 ## 5. Áreas de responsabilidade
 
-Divisão usada entre os agentes do projeto; serve de referência de contexto entre
-sessões.
+Os agentes do canvas Maestri são divididos **por fase do trabalho**, não por
+área do código — decisão de 2026-09-18, registrada em
+[`.ai/decisions.md`](.ai/decisions.md).
 
-| Área | Onde vive | Conteúdo |
-|------|-----------|----------|
-| Domínio / Contratos | `server/app/domain/` | `PendenciasProvider` (ABC), `StatusAgente`, `Pendencia`, e as implementações `MaestriProvider` (placeholder da API do Maestri, ainda indefinida) e `ShogunOrquestradorProvider` (implementação própria, hoje em memória). |
-| Backend / API | `server/app/api/`, `server/app/core/` | Rotas (`/comando`, `/health`), autenticação, `Settings`, provedores de LLM e fallback. |
-| Testes | `server/tests/` | `test_domain.py`, `test_comando.py`, `test_llm.py` e as fixtures de `conftest.py`. |
+| Fase | Agente | Contexto | Entrega |
+|------|--------|----------|---------|
+| Scout | Metsuke | L0 + L1 | briefing: problema, arquivos, dependências, escopo, riscos |
+| Architect | Sumi | L0 + L1 + L2 | plano: abordagem, arquivos, ordem dos commits, o que testar, fora do escopo |
+| Coder | Kaji | L0 + L1 + L2 (só os módulos tocados) | código commitado e empurrado |
+| Tester | Kama | L0 + L1 | relatório de suíte, cobertura, risco residual |
+| Reviewer | Torii | L0 + L1 + `git diff` | veredito e rascunho de PR em `.maestri/pr-pendente-<branch>.md` |
 
-Quem trabalha no domínio não mexe em rotas; quem trabalha nas rotas consome a
-interface, não a implementação.
+O fluxo é unidirecional — Scout → Architect → Coder → Tester → Reviewer — com
+**feedback pontual** de Tester e Reviewer direto para o Coder, sem reiniciar o
+pipeline. **Só o Coder escreve código de produção**; por isso worktree por
+agente deixou de ser necessário (não há dois agentes no mesmo checkout).
+
+A camada de contexto que sustenta isso vive em [`.ai/`](.ai/README.md):
+L1 (estado, decisões, convenções, problemas conhecidos) e L2 (arquitetura,
+módulos, grafo do Graphify). **L0 não é arquivo** — é a nota `L0 - Tarefa Atual`
+no canvas, reescrita a cada tarefa.
+
+A separação de área **dentro do código** continua valendo: quem mexe em
+`domain/` não mexe em rotas; quem mexe em rotas consome a interface, não a
+implementação.
 
 ## 6. Branch default do GitHub
 
