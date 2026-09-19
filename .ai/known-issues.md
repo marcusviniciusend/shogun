@@ -27,19 +27,6 @@ clique.
 
 **Não corrigido de propósito:** mesmo motivo do F10.10.
 
-### Classificação: horário cai em `consultar_pendencias`
-`server/app/core/llm/base.py` · achado em 2026-09-15
-
-A descrição de `consultar_pendencias` no `ESQUEMA_COMANDO` diz só "o Marcus quer
-saber o que está pendente" — sem dizer que pendência ali é **status de agente**.
-Modelos pequenos associam horário/agenda a "coisas pendentes".
-
-Reproduzido 3/3 com `qwen2.5:7b` **e** com `hermes3:8b`: "Qual o horário agora?"
-e "Que horas são em São Luís Maranhão" caem em pendências; "Que horas são?"
-sozinho acerta.
-
-**Não é o modelo, é o prompt** — vale para todos os provedores.
-
 ### `str(exc)` vaza ao cliente
 `server/` · rotas de erro
 
@@ -51,6 +38,30 @@ ao cliente e detalhe só no log. Está na rodada 8 de `.maestri/proximas-rodadas
 
 Nada chama `registrar_pendencia`. Falta desenhar quem produz pendência (rotina
 interna? webhook? placeholder do Maestri?).
+
+---
+
+## Resolvidos
+
+### Classificação: horário cai em `consultar_pendencias`
+`server/app/core/llm/base.py` · achado em 2026-09-15 · corrigido em 2026-09-19
+na branch `feature/prompt-classificacao-pendencias` (PR ainda não aberta)
+
+A descrição de `consultar_pendencias` dizia só "o Marcus quer saber o que está
+pendente" — sem dizer que pendência ali é **status de agente**. Modelos pequenos
+associavam horário/agenda a "coisas pendentes": reproduzido 3/3 com `qwen2.5:7b`
+**e** com `hermes3:8b`.
+
+A correção não foi só reescrever a descrição. O `ESQUEMA_COMANDO` não chega em
+todos os provedores, então o significado das ações virou fonte única
+(`SEMANTICA_ACOES`) com os dois canais de prompt derivados dela — ver
+[`decisions.md`](decisions.md), entrada de 2026-09-19. `conversar` passou a
+reivindicar horário/data/clima/agenda de propósito: negar num lugar sem dar
+destino no outro deixaria a pergunta órfã.
+
+**Verificação pendente:** a suíte garante que o vocabulário do domínio não
+desaparece do prompt (`test_semantica_acoes.py`), não que um 7B obedeça. A
+medição com modelo real (0/3 esperado) é do Tester e não roda no CI.
 
 ---
 

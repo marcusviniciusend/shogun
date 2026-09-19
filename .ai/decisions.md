@@ -6,6 +6,32 @@ proíbe daqui pra frente**.
 
 ---
 
+## 2026-09-19 — Semântica das ações: fonte única, dois canais derivados
+
+**O quê:** o significado de cada valor de `Acao` passa a viver numa constante
+só — `SEMANTICA_ACOES` em `core/llm/base.py`. O `ESQUEMA_COMANDO` (json_schema
+de claude/openai_mini) e a `DICA_ESQUEMA` (único canal em linguagem natural de
+deepseek/ollama) são os dois derivados dela. O `SYSTEM_PROMPT` não foi tocado.
+
+**Por quê:** a `description` do `ESQUEMA_COMANDO` não chega em todos os
+provedores — deepseek não recebe schema nenhum e o ollama recebe o schema como
+gramática, que garante forma e não semântica (`ollama.py`). Corrigir só ali
+alcançaria 2 dos 4 provedores, e nenhum deles é o provedor onde o bug de
+classificação foi reproduzido. Escrever o texto duas vezes resolveria o alcance
+e criaria divergência silenciosa; derivar resolve os dois.
+
+O `SYSTEM_PROMPT` ficou de fora porque ele é identidade ("trocar de LLM não pode
+mudar quem o Shogun é", `CLAUDE.md` §2), e o significado de um valor do enum de
+saída é formato, não identidade.
+
+**Proíbe:** reescrever a semântica de uma ação direto no `ESQUEMA_COMANDO` ou na
+`DICA_ESQUEMA` — os dois são derivados, a edição é em `SEMANTICA_ACOES`. Proíbe
+também gerar a lista de estados do prompt a partir de `StatusAgente`: o teste
+`test_semantica_acoes.py` deriva daquele enum, e gerar o prompt dele tornaria a
+guarda tautológica.
+
+---
+
 ## 2026-09-18 — Agentes organizados por fase, não por domínio
 
 **O quê:** o canvas Maestri deixou de ter um agente por área (backend,

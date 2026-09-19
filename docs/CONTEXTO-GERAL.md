@@ -100,8 +100,15 @@ Também em `base.py`, compartilhados por **todos** os provedores:
   `conversar | consultar_pendencias | abrir_app`; `parametros` declara `app` e
   `limite` como obrigatórios e anuláveis (o modelo emite `null` explícito no que
   não se aplica) — os nulos são descartados em `parsear_comando`.
-- `DICA_ESQUEMA` — o schema em linguagem natural, **acrescentado** ao
-  `SYSTEM_PROMPT` nos provedores sem enforcement nativo. Nunca o substitui.
+- `SEMANTICA_ACOES` — o significado de cada valor de `acao`, em linguagem
+  natural. **Fonte única:** a `description` do enum no `ESQUEMA_COMANDO` e o
+  bloco de ações da `DICA_ESQUEMA` são derivados dela, nunca escritos à mão. Os
+  dois canais existem porque o schema não chega em todo provedor, não porque a
+  semântica seja duas.
+- `DICA_ESQUEMA` — o schema em linguagem natural mais a semântica das ações,
+  **acrescentado** ao `SYSTEM_PROMPT`. Nunca o substitui. Vai para deepseek (que
+  não recebe schema nenhum) e para o ollama — que recebe o schema como
+  gramática, e gramática garante forma, não semântica.
 - `LLMIndisponivelError` — erro único para toda falha (rede, timeout, rate limit,
   credencial ausente, JSON malformado, resposta fora do schema). É o que a rota
   trata e o que dispara o fallback.

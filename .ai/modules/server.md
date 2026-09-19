@@ -23,7 +23,7 @@ app/
     rate_limit.py        # limite por cliente
     rede.py              # cliente HTTP compartilhado
     llm/
-      base.py            # Protocol LLMProvider, SYSTEM_PROMPT, ESQUEMA_COMANDO
+      base.py            # Protocol LLMProvider, SYSTEM_PROMPT, SEMANTICA_ACOES, ESQUEMA_COMANDO
       registry.py        # PROVIDERS: nome de config → classe
       fallback.py        # FallbackLLMProvider
       aquecimento.py     # warm-up do provedor
@@ -62,8 +62,13 @@ nenhuma rota conhece implementação concreta.
 - A rota depende da **interface**; a troca é por `app.dependency_overrides`.
 - Toda falha de LLM vira `LLMIndisponivelError`.
 - `SYSTEM_PROMPT` e `ESQUEMA_COMANDO` são compartilhados — mexer neles muda o
-  comportamento de **todos** os provedores de uma vez (ver o bug de
-  classificação em [`../known-issues.md`](../known-issues.md)).
+  comportamento de **todos** os provedores de uma vez.
+- O significado das ações é **um texto só**: `SEMANTICA_ACOES`. O
+  `ESQUEMA_COMANDO` e a `DICA_ESQUEMA` derivam dele, porque o schema não chega
+  em todos os provedores (deepseek não recebe schema; o ollama recebe como
+  gramática, que garante forma e não semântica). Editar a semântica em qualquer
+  um dos dois canais é o erro — ver [`../decisions.md`](../decisions.md),
+  2026-09-19.
 - Desde o #28 o servidor **recusa subir com migração pendente**:
   `alembic upgrade head`.
 - Testes: `cd server && pytest`. Nenhum teste chama API real.

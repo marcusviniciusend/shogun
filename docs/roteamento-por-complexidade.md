@@ -79,7 +79,7 @@ Tudo nesta seção é **[F]**.
 | Peça | Onde | O que é relevante para roteamento |
 |---|---|---|
 | `LLMProvider` | `core/llm/base.py` | `Protocol` de um método: `async interpretar_comando(texto) -> ComandoInterpretado`. Um roteador cabe nessa assinatura sem mudá-la. |
-| `SYSTEM_PROMPT` + `ESQUEMA_COMANDO` | `core/llm/base.py` | Compartilhados por todos os provedores. 237 e 947 caracteres (JSON compacto), respectivamente. |
+| `SYSTEM_PROMPT` + `ESQUEMA_COMANDO` | `core/llm/base.py` | Compartilhados por todos os provedores. 237 e 1.114 caracteres (JSON compacto), respectivamente — medidos em 2026-09-19, depois de a semântica das ações passar a ser derivada de `SEMANTICA_ACOES`. A `DICA_ESQUEMA`, que só deepseek e ollama recebem, soma outros 653. |
 | `PROVIDERS` | `core/llm/registry.py` | `claude`, `deepseek`, `openai_mini`, `ollama`, `deterministico`. Todo provedor recebe `Settings` no construtor. |
 | `montar_provider` | `core/llm/registry.py` | Monta o principal e o embrulha em `FallbackLLMProvider`. Roda **uma vez** — está atrás de `@lru_cache(maxsize=1)`. |
 | `FallbackLLMProvider` | `core/llm/fallback.py` | Só entra em ação em `LLMIndisponivelError`. Preserva o `uso.provider` de quem de fato respondeu. |
@@ -95,9 +95,11 @@ Dois fatos negativos que valem tanto quanto os positivos:
 
 - **[F] Não há prompt caching em lugar nenhum do servidor.** `cache_control` não
   aparece no código. E **[E]** o prefixo mínimo cacheável da Anthropic é da ordem
-  de 1024 tokens; o prefixo estável do Shogun (`SYSTEM_PROMPT` + schema ≈ 1.184
-  caracteres) fica bem abaixo disso. **Cache de prompt não é uma alavanca
-  disponível neste desenho** — não por esquecimento, por tamanho.
+  de 1024 tokens; o prefixo estável do Shogun (`SYSTEM_PROMPT` + schema = 1.351
+  caracteres, ≈ 350 tokens) fica bem abaixo disso. **Cache de prompt não é uma
+  alavanca disponível neste desenho** — não por esquecimento, por tamanho. O
+  número cresceu em 2026-09-19 (era 1.135) e a conclusão não se mexeu: a margem
+  para o piso é de quase 3×.
 - **[F] O custo por comando cresce com a sessão, não com a dificuldade.** O termo
   que domina o input é o bloco de histórico (até 20 mensagens reenviadas a cada
   comando), e ele é idêntico para "bom dia" e para uma pergunta difícil. Se o
