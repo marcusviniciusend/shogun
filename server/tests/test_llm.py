@@ -13,6 +13,7 @@ from app.core.config import Settings
 from app.core.llm import (
     ESQUEMA_COMANDO,
     PROVIDERS,
+    SEMANTICA_ACOES,
     SYSTEM_PROMPT,
     ClaudeProvider,
     ComandoInterpretado,
@@ -127,6 +128,9 @@ async def test_deepseek_pede_json_mode_e_descreve_o_schema_no_prompt(config):
     # A personalidade e identica; o schema entra como acrescimo, nao como troca.
     assert sistema.startswith(SYSTEM_PROMPT)
     assert "resposta_falada" in sistema
+    # O deepseek nao recebe schema nenhum: este prompt e o UNICO lugar onde o
+    # significado das acoes chega nele.
+    assert SEMANTICA_ACOES["consultar_pendencias"] in sistema
     assert chat.kwargs["messages"][1] == {"role": "user", "content": "abre o spotify"}
     assert comando.acao == "abrir_app"
     # Campos nulos do schema fechado somem do dict publico.
@@ -368,6 +372,9 @@ async def test_ollama_usa_endpoint_nativo_com_schema_completo(config):
     sistema = corpo["messages"][0]["content"]
     assert sistema.startswith(SYSTEM_PROMPT)
     assert "resposta_falada" in sistema
+    # A gramatica acima garante a FORMA da saida, nao a semantica: o significado
+    # das acoes so chega no ollama por este prompt.
+    assert SEMANTICA_ACOES["consultar_pendencias"] in sistema
     assert corpo["messages"][1] == {"role": "user", "content": "abre o spotify"}
     assert comando.acao == "abrir_app"
     assert comando.parametros == {"app": "Spotify"}
