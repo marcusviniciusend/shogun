@@ -27,12 +27,6 @@ clique.
 
 **Não corrigido de propósito:** mesmo motivo do F10.10.
 
-### `str(exc)` vaza ao cliente
-`server/` · rotas de erro
-
-Detalhe de exceção chega na resposta ao cliente. Deveria ser mensagem genérica
-ao cliente e detalhe só no log. Está na rodada 8 de `.maestri/proximas-rodadas.md`.
-
 ### Orquestrador persistente pronto e vazio
 `server/` · #27/#29
 
@@ -42,6 +36,18 @@ interna? webhook? placeholder do Maestri?).
 ---
 
 ## Resolvidos
+
+### `str(exc)` vaza ao cliente
+`server/` · rotas de erro · resolvido em 2026-09-10 pelo PR #37 (merge `47a40dd`)
+
+Detalhe de exceção chegava na resposta ao cliente; passou a ser mensagem
+genérica ao cliente e detalhe só no log. `grep -rn "str(exc)" server/app/api/`
+não retorna nada.
+
+O item ficou listado como aberto por engano: já estava defasado desde 10/09 e
+foi copiado para o `.ai/` em 18/09, na criação da camada, sem conferência no
+código. A rodada 8 de `.maestri/proximas-rodadas.md` ainda o cita — quem for
+executá-la não precisa dele.
 
 ### Classificação: horário cai em `consultar_pendencias`
 `server/app/core/llm/base.py` · achado em 2026-09-15 · corrigido em 2026-09-19
