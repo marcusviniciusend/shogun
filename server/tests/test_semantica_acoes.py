@@ -16,9 +16,13 @@ nenhum tipo representa: exatamente o perfil de coisa que apodrece em silêncio.
 Mesma linha de `test_invariantes_contrato.py`: **nada aqui compara redação.**
 
 - **Cobertura** (`test_toda_acao_tem_semantica`) — igualdade de conjuntos
-  contra `ACOES`, nos dois sentidos. Ação nova sem descrição falha; descrição
-  órfã de ação removida também. Sem isso, o "some o campo aqui" do comentário
-  do `ESQUEMA_COMANDO` continua sendo só um pedido educado.
+  contra `ACOES`. Na prática o teste pega **um** dos dois sentidos: a descrição
+  órfã, de ação que saiu de `ACOES`. O outro nunca chega até ele — ação nova sem
+  descrição estoura `KeyError` em `_SEMANTICA_POR_ACAO`, no import de `base.py`,
+  antes da coleta do pytest. A falha é barulhenta do mesmo jeito, que é o que
+  importa; a igualdade de conjuntos fica porque fecha o lado que o import não
+  fecha. Sem ela, o "some o campo aqui" do comentário do `ESQUEMA_COMANDO`
+  continua sendo só um pedido educado.
 - **Vocabulário do domínio** (`test_semantica_de_pendencias_cita_o_vocabulario_do_dominio`)
   — os termos são **derivados de `StatusAgente`** (`domain/pendencias.py`), não
   escritos à mão aqui. Reescrever a prosa inteira passa; perder a ligação com o
@@ -59,11 +63,20 @@ def _menciona(texto: str, termo: str) -> bool:
 
 
 def test_toda_acao_tem_semantica():
-    """`SEMANTICA_ACOES` e `ACOES` andam juntas, nos dois sentidos.
+    """`SEMANTICA_ACOES` e `ACOES` andam juntas.
 
-    Ação nova sem descrição entraria no enum com significado nenhum para o
-    modelo — o bug desta rodada, de novo e por omissão. Descrição órfã de ação
-    removida é prompt mentindo sobre um valor que não existe mais.
+    O que este teste de fato executa é a **descrição órfã**: ação que saiu de
+    `ACOES` e deixou o texto para trás é prompt mentindo sobre um valor que não
+    existe mais.
+
+    O sentido oposto — ação nova sem descrição, que entraria no enum com
+    significado nenhum para o modelo — não chega aqui: `_SEMANTICA_POR_ACAO`
+    indexa `SEMANTICA_ACOES[acao]` para cada item de `ACOES`, então a falta
+    estoura `KeyError` no import de `base.py`, antes da coleta do pytest. Isso é
+    deliberado e não é para ser "consertado" transformando em falha de teste: a
+    falha continua barulhenta e acontece mais cedo. A asserção abaixo é de
+    conjunto e não de subconjunto porque é ela quem cobre o lado que o import
+    não cobre.
     """
     assert set(SEMANTICA_ACOES) == set(ACOES), (
         "SEMANTICA_ACOES e ACOES divergiram — "

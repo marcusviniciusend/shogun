@@ -111,7 +111,14 @@ DICA_ESQUEMA = (
     '"parametros": {"app": string | null, "limite": integer | null}, '
     '"resposta_falada": string}'
     # Derivado de `SEMANTICA_ACOES` — não escreva a semântica aqui.
-    "\n\nQuando usar cada acao:\n"
+    #
+    # Acentuado de propósito: a medição do Kama mostrou que acento e pontuação
+    # mudam a classificação nesses modelos ("que horas sao agora", sem acento,
+    # não reproduz o bug que a frase acentuada reproduz 5/5). O texto em volta é
+    # português acentuado; esta linha não pode ser a exceção. Fica sem acento só
+    # o que é identificador — chave de JSON, valor do enum de ação, estado de
+    # `StatusAgente` — porque ali a grafia literal é o que importa.
+    "\n\nQuando usar cada ação:\n"
     + "\n".join(f"- {frase}" for frase in _SEMANTICA_POR_ACAO)
 )
 
