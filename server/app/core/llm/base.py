@@ -3,6 +3,10 @@
 A personalidade do Shogun (``SYSTEM_PROMPT``) e o formato de saída
 (``ESQUEMA_COMANDO`` / ``ComandoInterpretado``) vivem aqui e são idênticos para
 todos os provedores — trocar de LLM não pode mudar quem o Shogun é.
+
+O significado de cada ação vive em ``SEMANTICA_ACOES``, fonte única da qual o
+``ESQUEMA_COMANDO`` e a ``DICA_ESQUEMA`` são derivados: os dois canais existem
+porque nem todo provedor recebe o schema, não porque a semântica seja duas.
 """
 
 from typing import Any, Literal, Protocol, runtime_checkable
@@ -19,6 +23,36 @@ Acao = Literal["conversar", "consultar_pendencias", "abrir_app"]
 
 ACOES: tuple[str, ...] = ("conversar", "consultar_pendencias", "abrir_app")
 
+# Significado de cada ação, em linguagem natural. FONTE ÚNICA: o
+# `ESQUEMA_COMANDO` (o json_schema que claude e openai_mini recebem) e a
+# `DICA_ESQUEMA` (o único canal em linguagem natural de deepseek e ollama) são
+# os dois DERIVADOS daqui. Não reescreva a semântica de uma ação em nenhum dos
+# dois — os quatro provedores têm que receber a mesma frase, e dois textos sobre
+# a mesma coisa divergem em silêncio.
+#
+# Os estados de agente estão escritos à mão de propósito: derivá-los de
+# `StatusAgente` (`domain/pendencias.py`) tornaria `test_semantica_acoes.py`
+# tautológico — é justamente daquele enum que o teste deriva o vocabulário
+# esperado aqui.
+SEMANTICA_ACOES: dict[str, str] = {
+    "conversar": (
+        "resposta livre e qualquer pergunta geral, inclusive horário, data, "
+        "clima, agenda pessoal e bate-papo."
+    ),
+    "consultar_pendencias": (
+        "status dos AGENTES de software que o Shogun acompanha (executando, "
+        "pendente, travado, erro, concluido). Não é agenda, compromisso, "
+        "horário nem lista de tarefas do Marcus."
+    ),
+    "abrir_app": "abrir um aplicativo no dispositivo.",
+}
+
+#: Uma frase por ação, na ordem de `ACOES`, no formato ``acao = significado``.
+#: É a forma em que os dois canais de prompt consomem `SEMANTICA_ACOES`.
+_SEMANTICA_POR_ACAO: tuple[str, ...] = tuple(
+    f"{acao} = {SEMANTICA_ACOES[acao]}" for acao in ACOES
+)
+
 # O schema enviado na requisição é FECHADO (`additionalProperties: false` em todo
 # objeto): tanto o structured output da Anthropic quanto o strict mode da OpenAI
 # rejeitam objetos abertos. Por isso `parametros` declara explicitamente os campos
@@ -31,11 +65,8 @@ ESQUEMA_COMANDO: dict[str, Any] = {
         "acao": {
             "type": "string",
             "enum": list(ACOES),
-            "description": (
-                "conversar = resposta livre; consultar_pendencias = o Marcus quer "
-                "saber o que está pendente; abrir_app = abrir um aplicativo no "
-                "dispositivo."
-            ),
+            # Derivada de `SEMANTICA_ACOES` — não escreva a semântica aqui.
+            "description": " ".join(_SEMANTICA_POR_ACAO),
         },
         "parametros": {
             "type": "object",
@@ -68,12 +99,20 @@ ESQUEMA_COMANDO: dict[str, Any] = {
 # Provedores sem enforcement de schema (ex.: JSON mode do DeepSeek) recebem o
 # schema no próprio prompt. É um ACRÉSCIMO ao SYSTEM_PROMPT, nunca uma alteração
 # dele — a personalidade continua idêntica em todos os provedores.
+#
+# O bloco de ações não é redundante nem para quem tem enforcement: o ollama
+# recebe o `ESQUEMA_COMANDO` como gramática, e gramática garante forma, não
+# semântica (`ollama.py`). A `DICA_ESQUEMA` é o único canal em linguagem natural
+# de deepseek e ollama — é por aqui que o significado das ações chega neles.
 DICA_ESQUEMA = (
     "\n\nResponda SEMPRE com um único objeto JSON válido, sem markdown e sem "
     "texto fora do JSON, exatamente neste formato:\n"
     '{"acao": "conversar" | "consultar_pendencias" | "abrir_app", '
     '"parametros": {"app": string | null, "limite": integer | null}, '
     '"resposta_falada": string}'
+    # Derivado de `SEMANTICA_ACOES` — não escreva a semântica aqui.
+    "\n\nQuando usar cada acao:\n"
+    + "\n".join(f"- {frase}" for frase in _SEMANTICA_POR_ACAO)
 )
 
 
