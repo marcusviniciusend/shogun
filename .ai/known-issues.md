@@ -8,6 +8,32 @@ com o commit/PR.
 
 ## Abertos
 
+### Classificação: agenda pessoal cai em `consultar_pendencias` (qwen)
+`server/app/core/llm/base.py` · achado em 2026-09-19 pelo Kama, na validação da
+branch `feature/prompt-classificacao-pendencias`
+
+Vizinho do bug de horário corrigido nesta rodada (ver "Resolvidos"), e **não
+corrigido por ela**. Com `qwen2.5:7b-instruct` — o modelo em produção —
+"tenho algum compromisso marcado hoje a tarde" e "Tenho algum compromisso
+amanhã?" caem em `consultar_pendencias` **0/5 antes e 0/5 depois**: 10 chamadas,
+10 erradas, o ponteiro não se mexeu.
+
+O incômodo é que `SEMANTICA_ACOES` trata este caso explicitamente nas duas
+pontas — `conversar` reivindica "agenda pessoal", `consultar_pendencias` nega
+"agenda, compromisso". O qwen ignora as duas. O `hermes3:8b` obedece: 0/5 antes,
+5/5 depois.
+
+**Não corrigido de propósito:** a correção é mudança de prompt, ou seja, código
+de produção, e só o Coder escreve código de produção (`CLAUDE.md` §5). Não entra
+de carona numa branch já empurrada e fechada em torno do bug de horário.
+Medição completa em `.maestri/relatorio-teste-rodada-1.md` §4.3 — artefato
+local, `.maestri/` é gitignored.
+
+**Para quem for atacar:** a guarda de regressão já existe
+(`test_semantica_acoes.py`), então mexer na redação é barato. O que não existe é
+prova de que uma redação nova resolve — isso só se mede com ollama local, fora
+do CI, e **com as frases ao pé da letra**: acento e pontuação mudam o resultado.
+
 ### F10.10 — "Nova conversa" não interrompe a gravação
 `desktop/src/App.tsx` · achado em 2026-09-15
 
@@ -55,8 +81,7 @@ na branch `feature/prompt-classificacao-pendencias` (PR ainda não aberta)
 
 A descrição de `consultar_pendencias` dizia só "o Marcus quer saber o que está
 pendente" — sem dizer que pendência ali é **status de agente**. Modelos pequenos
-associavam horário/agenda a "coisas pendentes": reproduzido 3/3 com `qwen2.5:7b`
-**e** com `hermes3:8b`.
+associavam horário/agenda a "coisas pendentes".
 
 A correção não foi só reescrever a descrição. O `ESQUEMA_COMANDO` não chega em
 todos os provedores, então o significado das ações virou fonte única
@@ -65,9 +90,32 @@ todos os provedores, então o significado das ações virou fonte única
 reivindicar horário/data/clima/agenda de propósito: negar num lugar sem dar
 destino no outro deixaria a pergunta órfã.
 
-**Verificação pendente:** a suíte garante que o vocabulário do domínio não
-desaparece do prompt (`test_semantica_acoes.py`), não que um 7B obedeça. A
-medição com modelo real (0/3 esperado) é do Tester e não roda no CI.
+**Verificado em 2026-09-19** pelo Kama, com ollama local (fora do CI: a suíte
+garante que o vocabulário do domínio não desaparece do prompt, não que um 7B
+obedeça). 212 chamadas, `origin/dev` contra `HEAD`, mesmo modelo e mesmo
+provedor dos dois lados:
+
+| Modelo | Frase | Antes | Depois |
+|---|---|---|---|
+| `qwen2.5:7b-instruct` | "Qual o horário agora?" | 0/5 | **5/5** |
+| `qwen2.5:7b-instruct` | "Que horas são em São Luís Maranhão" | 0/5 | **5/5** |
+| `hermes3:8b` | as duas acima | 5/5 | 5/5 |
+
+Duas correções ao enunciado original, que dizia "3/3 com `qwen2.5:7b` **e** com
+`hermes3:8b`":
+
+1. **O hermes nunca reproduziu essas frases** — acertava 5/5 antes da correção.
+   O que ele errava era o caminho oposto: "Quais agentes estão travados?" caía
+   em `conversar` 0/5, e a correção levou a 5/5. O ganho é real, só é outro.
+2. **A formulação importa mais do que parecia.** "que horas sao agora", sem
+   acento, não reproduz o bug em nenhum dos dois modelos. Só as frases exatas do
+   briefing reproduzem.
+
+Latência não regrediu apesar do prompt maior (`DICA_ESQUEMA` 267 → 653 chars):
+mediana de 3,14 s para 2,74 s no qwen.
+
+**O que a correção não alcançou:** agenda pessoal no qwen continua em
+`consultar_pendencias`, 0/5 antes e depois — item novo em "Abertos".
 
 ---
 
