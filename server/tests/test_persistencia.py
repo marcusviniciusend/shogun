@@ -119,6 +119,12 @@ def test_sessao_nova_tem_historico_vazio(repo):
 
 
 def test_sem_historico_o_prompt_e_o_proprio_comando():
+    """Guarda de pureza do módulo — não afrouxe.
+
+    Sem histórico e sem contexto, o prompt é o comando, byte a byte. É este
+    teste que prova que o parâmetro `contexto` não mudou o comportamento de
+    quem não o usa. Se ele precisar ser afrouxado, o desenho foi violado.
+    """
     assert montar_prompt([], "bom dia") == "bom dia"
 
 
@@ -134,6 +140,38 @@ def test_historico_entra_como_bloco_antes_do_comando():
     # O comando novo fica por último — é o que o modelo tem que responder.
     assert prompt.rstrip().endswith("e as outras?")
     assert prompt.index("quais sao minhas") < prompt.index("e as outras?")
+
+
+def test_contexto_entra_acima_do_historico():
+    """Ordem: contexto, histórico, comando.
+
+    O contexto vale para a conversa inteira e o histórico para os turnos
+    anteriores, então o mais geral vem primeiro. O comando continua por último,
+    que é a invariante que o teste de ordem acima já defende.
+    """
+    prompt = montar_prompt(
+        [("user", "oi"), ("assistant", "Olá.")],
+        "e agora?",
+        contexto="Data e hora de agora: sexta-feira.",
+    )
+
+    assert prompt.index("Data e hora") < prompt.index("Histórico da conversa")
+    assert prompt.index("Histórico da conversa") < prompt.index("e agora?")
+    assert prompt.rstrip().endswith("e agora?")
+
+
+def test_contexto_sem_historico_nao_inventa_secao_de_historico():
+    """Conversa nova com contexto: o bloco entra, o de histórico não.
+
+    É o caso de TODO primeiro comando, então é o mais comum em produção. Um
+    cabeçalho de histórico vazio aqui gastaria tokens e ensinaria o modelo a
+    esperar uma seção que não existe.
+    """
+    prompt = montar_prompt([], "bom dia", contexto="Data e hora de agora: sexta.")
+
+    assert "Data e hora de agora: sexta." in prompt
+    assert CABECALHO not in prompt
+    assert prompt.rstrip().endswith("bom dia")
 
 
 # --- Fluxo completo do /comando ---------------------------------------------

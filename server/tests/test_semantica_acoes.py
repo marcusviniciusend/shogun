@@ -43,7 +43,13 @@ propósito, nas duas pontas: reivindicadas em `conversar`, excluídas em
 
 import re
 
-from app.core.llm import ACOES, DICA_ESQUEMA, ESQUEMA_COMANDO, SEMANTICA_ACOES
+from app.core.llm import (
+    ACOES,
+    DICA_ESQUEMA,
+    ESQUEMA_COMANDO,
+    REGRA_DE_HONESTIDADE,
+    SEMANTICA_ACOES,
+)
 from app.domain.pendencias import StatusAgente
 
 #: `pendente` fica **fora** do vocabulário que ancora a descrição.
@@ -55,6 +61,17 @@ from app.domain.pendencias import StatusAgente
 #: `test_invariantes_contrato.py` — palavra que é prosa portuguesa tanto quanto
 #: identificador não ancora nada.
 _ESTADOS_QUE_ANCORAM = {s.value for s in StatusAgente} - {StatusAgente.PENDENTE.value}
+
+#: Formas de **admitir a falta de acesso**. Terminologia, não redação: uma
+#: reescrita fiel da regra continua dizendo que não se tem o dado, de alguma
+#: destas maneiras. Forma nova aqui é manutenção esperada — o que não pode é a
+#: regra virar só "seja cuidadoso", que não diz ao modelo o que fazer.
+_VERBOS_DE_RECUSA = ("não tem acesso", "não sei", "não consigo", "não tenho")
+
+#: Exemplos de dado que o servidor **não** tem. A regra precisa nomear pelo
+#: menos um: sem exemplo concreto, "dado que não está aqui" é abstrato demais
+#: para um 7B ligar à pergunta que ele acabou de receber.
+_DADOS_SEM_FONTE = ("agenda", "clima", "e-mail", "arquivos")
 
 
 def _menciona(texto: str, termo: str) -> bool:
@@ -132,3 +149,60 @@ def test_os_dois_canais_de_prompt_carregam_a_mesma_semantica():
             "classificação foi reproduzido. A dica é derivada de "
             "SEMANTICA_ACOES; não a escreva à mão."
         )
+
+
+# --- Regra de honestidade ----------------------------------------------------
+#
+# `conversar` é o único ramo da rota cuja fala não passa por dado do servidor:
+# `consultar_pendencias` e `abrir_app` descartam a `resposta_falada` do modelo e
+# constroem a deles. A regra é o que separa "responder" de "inventar" nesse
+# ramo, e vale o mesmo teste de alcance da semântica das ações.
+
+
+def test_a_regra_de_honestidade_chega_nos_dois_canais():
+    """A regra alcança os quatro provedores, não só os que recebem schema.
+
+    Mata a mutação que o padrão desta branch já tinha ensinado a temer: alguém
+    reescrever a regra à mão num dos canais, ou tirá-la de um deles. `deepseek`
+    e `ollama` são os que ficariam sem — e é no ollama que a fabricação foi
+    medida.
+    """
+    descricao_da_fala = ESQUEMA_COMANDO["properties"]["resposta_falada"]["description"]
+
+    assert REGRA_DE_HONESTIDADE in descricao_da_fala, (
+        "a regra de honestidade não está na description de resposta_falada — "
+        "claude e openai_mini deixariam de recebê-la. A description é derivada "
+        "de REGRA_DE_HONESTIDADE; não a escreva à mão."
+    )
+    assert REGRA_DE_HONESTIDADE in DICA_ESQUEMA, (
+        "a regra de honestidade não está na DICA_ESQUEMA — deepseek e ollama "
+        "deixariam de recebê-la, e é no ollama que a fabricação foi medida."
+    )
+
+
+def test_a_regra_de_honestidade_diz_o_que_fazer_quando_nao_sabe():
+    """Âncora de conteúdo: recusa concreta, com exemplo de dado sem fonte.
+
+    Não é lista de palavras proibidas — a armadilha que a rodada 1 registrou
+    continua valendo, e aqui ela morderia igual: a regra **precisa** citar
+    agenda e clima, que uma guarda negativa proibiria.
+
+    O que se ancora é o oposto: a regra tem que dar uma saída ao modelo ("diga
+    que não tem acesso") e nomear pelo menos um dado que o servidor não tem.
+    Uma regra que só diga "não invente" deixa o modelo sem alternativa, e um 7B
+    sem alternativa inventa.
+    """
+    recusas = [t for t in _VERBOS_DE_RECUSA if t in REGRA_DE_HONESTIDADE.lower()]
+    assert recusas, (
+        "a regra de honestidade não diz ao modelo COMO admitir a falta de "
+        f"acesso (nenhuma de {_VERBOS_DE_RECUSA}). Proibir a invenção sem dar "
+        "saída não resolve: sem alternativa, o modelo inventa. Forma de recusa "
+        "nova é bem-vinda — acrescente em _VERBOS_DE_RECUSA."
+    )
+
+    dados = [d for d in _DADOS_SEM_FONTE if _menciona(REGRA_DE_HONESTIDADE, d)]
+    assert dados, (
+        "a regra de honestidade não nomeia nenhum dado que o servidor não tem "
+        f"({_DADOS_SEM_FONTE}). 'Dado que não está aqui' sozinho é abstrato "
+        "demais para o modelo ligar à pergunta que acabou de receber."
+    )
