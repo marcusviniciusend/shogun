@@ -34,6 +34,46 @@ local, `.maestri/` é gitignored.
 prova de que uma redação nova resolve — isso só se mede com ollama local, fora
 do CI, e **com as frases ao pé da letra**: acento e pontuação mudam o resultado.
 
+**Atualização de 2026-09-19 (rodada 2):** a rodada 2 mexeu em
+`SEMANTICA_ACOES["conversar"]`, mas **não para atacar este item** — o alvo dela
+foi o ramo `conversar` mentir, não o roteamento. A classificação de agenda pode
+continuar exatamente como está e a rodada 2 ainda assim ter cumprido o que
+prometeu; ver a decisão de 2026-09-19 em [`decisions.md`](decisions.md) e o
+critério do Architect em `.maestri/plano-rodada-2.md` §7.3. **Se continuar
+0/5**, a saída registrada é esta: a resposta de `consultar_pendencias` é
+"Nenhuma pendência registrada, Marcus" — verdade, e fora do assunto. O que
+**não** deve ser feito é mais uma rodada de texto empurrando na mesma direção,
+que é exatamente o que já não moveu o ponteiro.
+
+### `conversar` inventa dado que o servidor não tem
+`server/app/api/comando.py` · achado em 2026-09-19 na rodada 2 · **mitigado, não
+fechado**, na branch `feature/prompt-classificacao-pendencias`
+
+`consultar_pendencias` e `abrir_app` constroem a fala a partir de dado do
+servidor e descartam a `resposta_falada` do modelo. `conversar` fala o texto do
+modelo **verbatim**. É o único ramo da rota por onde uma alucinação chega ao
+Marcus, e a assimetria não estava escrita em lugar nenhum antes desta rodada.
+
+Medido com modelo real: perguntado sobre agenda, o modelo inventou reunião,
+horário e nome próprio — 3/3, idêntico, sem hedge. Perguntado a hora, respondeu
+"14:30" às 19:47.
+
+**O que a rodada 2 fez:** injetou data e hora reais no prompt
+(`core/llm/contexto.py`), separou roteamento de capacidade em `conversar` e
+acrescentou a `REGRA_DE_HONESTIDADE` nos dois canais de prompt.
+
+**Por que continua aberto:** nada disso prova que o modelo obedece. A suíte
+garante que o dado é montado e que o texto alcança os quatro provedores — **um
+teste de CI não vê fabricação**, e um que visse deixaria de ser unitário
+(`CLAUDE.md` §3). Só medição local com ollama fecha ou mantém este item, e o
+critério está em `.maestri/plano-rodada-2.md` §7.2 (ANCORADA / ADMISSÃO /
+FABRICAÇÃO, na dúvida conte como fabricação).
+
+**Se o 7B ignorar a regra de honestidade também:** aí há evidência forte para
+"é limite do modelo" — mas sobre *fabricação*, que é muito mais sério que
+"agenda cai em pendências" e provavelmente muda a conversa sobre qual modelo
+fica em produção. Reportar, não improvisar redação nova.
+
 ### F10.10 — "Nova conversa" não interrompe a gravação
 `desktop/src/App.tsx` · achado em 2026-09-15
 

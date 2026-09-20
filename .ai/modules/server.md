@@ -23,11 +23,13 @@ app/
     rate_limit.py        # limite por cliente
     rede.py              # cliente HTTP compartilhado
     llm/
-      base.py            # Protocol LLMProvider, SYSTEM_PROMPT, SEMANTICA_ACOES, ESQUEMA_COMANDO
+      base.py            # Protocol LLMProvider, SYSTEM_PROMPT, SEMANTICA_ACOES,
+                         # REGRA_DE_HONESTIDADE, ESQUEMA_COMANDO
       registry.py        # PROVIDERS: nome de config → classe
       fallback.py        # FallbackLLMProvider
       aquecimento.py     # warm-up do provedor
-      historico.py       # contexto de conversa
+      historico.py       # histórico da conversa no prompt
+      contexto.py        # data e hora reais no prompt (bloco_de_contexto)
       precos.py          # tabela de preço por modelo
       claude.py · openai_compat.py · ollama.py · deterministico.py
   db/
@@ -69,6 +71,14 @@ nenhuma rota conhece implementação concreta.
   gramática, que garante forma e não semântica). Editar a semântica em qualquer
   um dos dois canais é o erro — ver [`../decisions.md`](../decisions.md),
   2026-09-19.
+- A `REGRA_DE_HONESTIDADE` segue o mesmo padrão de fonte única, e pelo mesmo
+  motivo: `conversar` é o **único** ramo da rota que fala o texto do modelo
+  verbatim — `consultar_pendencias` e `abrir_app` constroem a fala de dado do
+  servidor e descartam a `resposta_falada`. É por `conversar`, e só por ali, que
+  uma alucinação chega ao Marcus.
+- Data e hora entram pelo `contexto.py`, **nunca** pelo `SYSTEM_PROMPT`: o
+  instante muda a cada chamada e o system é o prefixo estável. E o instante não
+  vai para o histórico persistido — a mensagem gravada é o texto cru.
 - Desde o #28 o servidor **recusa subir com migração pendente**:
   `alembic upgrade head`.
 - Testes: `cd server && pytest`. Nenhum teste chama API real.

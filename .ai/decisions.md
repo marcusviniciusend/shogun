@@ -6,6 +6,38 @@ proíbe daqui pra frente**.
 
 ---
 
+## 2026-09-19 — `conversar` é o único ramo que pode mentir
+
+**O quê:** três mudanças que só fazem sentido juntas. (1) `bloco_de_contexto`
+(`core/llm/contexto.py`) injeta dia da semana, data e hora locais no prompt de
+todo comando, via parâmetro novo de `montar_prompt`. (2) `SEMANTICA_ACOES`
+define `conversar` por complemento e declara explicitamente que cair ali não
+significa ter o dado. (3) `REGRA_DE_HONESTIDADE` manda responder só com o que
+está no prompt e admitir a falta de acesso; é fonte única derivada nos dois
+canais, como `SEMANTICA_ACOES`.
+
+**Por quê:** `consultar_pendencias` e `abrir_app` constroem a fala a partir de
+dado do servidor e DESCARTAM a `resposta_falada` do modelo; `conversar` fala o
+texto do modelo verbatim (`api/comando.py`). `conversar` é, portanto, o único
+ramo da rota onde uma alucinação chega ao usuário. Medição da rodada 2, com
+modelo real: perguntado sobre agenda, o modelo inventou reunião, horário e um
+nome próprio, 3/3, idêntico, sem hedge; perguntado a hora, respondeu 14:30 às
+19:47. A rodada 1 tinha melhorado a classificação e, sem querer, mudado o
+destino dessas perguntas do ramo ancorado para o ramo sem âncora.
+
+A frase da rodada 1 (`conversar = ... inclusive horário, data, clima, agenda
+pessoal`) era instrução de roteamento e declaração de capacidade na mesma
+oração. As duas foram separadas: roteamento por complemento, capacidade em
+regra própria sobre `resposta_falada`.
+
+**Proíbe:** acrescentar tópico a `conversar` como se fosse capacidade — a lista
+roteia, não promete. Proíbe também injetar data/hora no `SYSTEM_PROMPT`: o
+instante muda a cada chamada e o system é o prefixo estável. E proíbe soltar a
+regra de honestidade sem a âncora de relógio: sem o instante no prompt, "diga só
+o que estiver aqui" impede o Shogun de responder uma hora que o servidor sabe.
+
+---
+
 ## 2026-09-19 — Semântica das ações: fonte única, dois canais derivados
 
 **O quê:** o significado de cada valor de `Acao` passa a viver numa constante
