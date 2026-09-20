@@ -9,7 +9,7 @@ from datetime import datetime
 from sqlalchemy import select
 
 from app.core.llm import ComandoInterpretado
-from app.core.llm.historico import montar_prompt
+from app.core.llm.historico import CABECALHO, montar_prompt
 from app.db import Message, Session
 from app.db.repositorio import novo_id_de_sessao
 
@@ -204,8 +204,11 @@ def test_historico_da_sessao_chega_ao_llm(client, auth, llm):
     client.post("/comando", json=_corpo("e as outras?", session_id=sid), headers=auth)
 
     primeiro, segundo = llm.chamadas
-    # A primeira chamada não tem contexto nenhum: a conversa acabou de começar.
-    assert primeiro == "quais sao minhas pendencias?"
+    # A primeira chamada não tem HISTÓRICO: a conversa acabou de começar. Ela
+    # tem o bloco de data e hora, que a rota antepõe em todo comando — por isso
+    # a guarda é a ausência do cabeçalho de histórico, não igualdade com o texto.
+    assert CABECALHO not in primeiro
+    assert primeiro.rstrip().endswith("quais sao minhas pendencias?")
     assert "Marcus: quais sao minhas pendencias?" in segundo
     assert "Shogun: Voce tem 2 pendencias." in segundo
     assert segundo.rstrip().endswith("e as outras?")
@@ -215,7 +218,10 @@ def test_comando_novo_nao_aparece_duplicado_no_proprio_prompt(client, auth, llm)
     """O histórico é lido antes do INSERT — senão o texto atual viria duas vezes."""
     client.post("/comando", json=_corpo("bom dia"), headers=auth)
 
-    assert llm.chamadas == ["bom dia"]
+    # Contar é mais forte que a igualdade que estava aqui: com o bloco de data e
+    # hora antes do comando, o prompt deixou de ser o texto cru, mas a
+    # duplicação — que é o que este teste existe para pegar — continua visível.
+    assert llm.chamadas[0].count("bom dia") == 1
 
 
 def test_falha_do_llm_nao_apaga_a_pergunta_do_historico(client, auth, db, llm):

@@ -16,6 +16,7 @@ from app.core.llm.base import (
     parsear_comando,
 )
 from app.core.llm.claude import ClaudeProvider
+from app.core.llm.contexto import bloco_de_contexto
 from app.core.llm.deterministico import DeterministicoProvider
 from app.core.llm.fallback import FallbackLLMProvider
 from app.core.llm.ollama import OllamaProvider
@@ -56,6 +57,7 @@ __all__ = [
     "ProviderDesconhecidoError",
     "UsoTokens",
     "aquecer_provider",
+    "bloco_de_contexto",
     "criar_provider",
     "get_llm_provider",
     "montar_provider",

@@ -32,7 +32,10 @@ def test_acao_conversar_usa_resposta_livre(client, corpo, auth, llm):
     assert dados["session_id"] == "s1"
     assert dados["text"] == "Olá, Marcus."
     assert dados["actions"] == []
-    assert llm.chamadas == ["bom dia"]
+    # O prompt não é mais o texto cru: a rota antepõe o bloco de data e hora
+    # (`bloco_de_contexto`). O que importa aqui é que o comando chegou ao modelo
+    # e é a última coisa do prompt — quem cobre o formato é `test_contexto.py`.
+    assert llm.chamadas[0].rstrip().endswith("bom dia")
 
 
 def test_acao_consultar_pendencias_lista_itens(client, corpo, auth, llm):

@@ -1,6 +1,7 @@
 """Rota POST /comando — ponto de entrada dos clientes desktop e mobile."""
 
 import logging
+from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from starlette.concurrency import run_in_threadpool
@@ -19,6 +20,7 @@ from app.core.llm import (
     UsoTokens,
     get_llm_provider,
 )
+from app.core.llm.contexto import bloco_de_contexto
 from app.core.llm.historico import montar_prompt
 from app.core.persistencia import RepositorioConversas, get_repositorio
 from app.core.pendencias import PendenciasProvider, get_pendencias_provider
@@ -245,8 +247,16 @@ async def processar_comando(
         settings.shogun_historico_max_mensagens,
     )
 
+    # `astimezone()` sem argumento = hora local do servidor, com offset. A
+    # premissa (hoje o servidor roda na máquina do Marcus) está na docstring de
+    # `contexto.py`; o instante é lido aqui, por chamada, e nunca é gravado no
+    # histórico — a mensagem persistida continua sendo o texto cru.
+    contexto = bloco_de_contexto(datetime.now().astimezone())
+
     try:
-        intencao = await llm.interpretar_comando(montar_prompt(historico, texto))
+        intencao = await llm.interpretar_comando(
+            montar_prompt(historico, texto, contexto)
+        )
     except LLMIndisponivelError as exc:
         logger.error("LLM indisponível: %s", exc)
         raise HTTPException(

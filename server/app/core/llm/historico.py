@@ -21,15 +21,38 @@ CABECALHO = "Histórico da conversa (mais antigo primeiro):"
 RODAPE = "Comando atual:"
 
 
-def montar_prompt(historico: Sequence[tuple[str, str]], texto: str) -> str:
-    """Texto único com o histórico como contexto e o comando novo no fim.
+def montar_prompt(
+    historico: Sequence[tuple[str, str]],
+    texto: str,
+    contexto: str = "",
+) -> str:
+    """Texto único com o contexto e o histórico antes do comando novo.
 
-    Sem histórico, devolve o comando intacto — uma conversa nova não deve
-    carregar bloco de contexto vazio, que só gastaria tokens e confundiria o
+    Sem histórico **e** sem contexto, devolve o comando intacto — uma conversa
+    nova não deve carregar bloco vazio, que só gastaria tokens e confundiria o
     modelo com uma seção em branco.
+
+    ``contexto`` é texto pronto, montado por quem sabe o que é contexto (hoje,
+    `bloco_de_contexto` com data e hora). Este módulo não o produz nem o
+    interpreta: um `historico.py` que injetasse relógio em silêncio seria uma
+    surpresa para o próximo leitor. Ele entra **acima** do histórico porque vale
+    para a conversa inteira, não para um turno.
+
+    O default vazio não é comodidade de assinatura: é o que mantém o
+    comportamento antigo byte a byte para quem não passa contexto.
     """
-    if not historico:
+    partes: list[str] = []
+
+    if contexto:
+        partes.append(contexto)
+
+    if historico:
+        linhas = [
+            f"{ROTULOS.get(role, role)}: {conteudo}" for role, conteudo in historico
+        ]
+        partes.append(f"{CABECALHO}\n" + "\n".join(linhas))
+
+    if not partes:
         return texto
 
-    linhas = [f"{ROTULOS.get(role, role)}: {conteudo}" for role, conteudo in historico]
-    return f"{CABECALHO}\n" + "\n".join(linhas) + f"\n\n{RODAPE}\n{texto}"
+    return "\n\n".join(partes) + f"\n\n{RODAPE}\n{texto}"
