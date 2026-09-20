@@ -45,6 +45,26 @@ critério do Architect em `.maestri/plano-rodada-2.md` §7.3. **Se continuar
 **não** deve ser feito é mais uma rodada de texto empurrando na mesma direção,
 que é exatamente o que já não moveu o ponteiro.
 
+### `conversar` inventa hora de outro fuso
+`server/app/core/llm/contexto.py` · achado em 2026-09-19 pelo Kama, rodada 2
+
+O bloco de contexto entrega "hora local do servidor" sem dizer **qual** fuso.
+Perguntado a hora em cidade de outro fuso, o `qwen2.5:7b-instruct` afirma uma
+conversão que não fez: "Em Lisboa, as horas são 22:29" (correto: 03:29), 5/5,
+com a justificativa "considerando a diferença horária". Manaus: 1/5 fabrica,
+4/5 admite.
+
+Não pegou na rodada 2 porque a frase medida (São Luís) é UTC−3, o mesmo fuso
+do servidor — acerta por coincidência. **Não corrigido:** é prompt, ou seja,
+código de produção. As saídas plausíveis são nomear o fuso no bloco ou
+instruir a não converter; qual delas é desenho, não implementação.
+
+**Nota do Kaji, sobre reusar o critério:** o §7.2 do
+`.maestri/plano-rodada-2.md` define ANCORADA como "confere com o instante
+injetado", o que premia repetir o relógio do servidor como se fosse a hora de
+outra cidade. Em São Luís isso é indistinguível de acertar. Quem for reusar o
+critério precisa fechar esse buraco antes de medir fuso.
+
 ### `conversar` inventa dado que o servidor não tem
 `server/app/api/comando.py` · achado em 2026-09-19 na rodada 2 · **mitigado, não
 fechado**, na branch `feature/prompt-classificacao-pendencias`

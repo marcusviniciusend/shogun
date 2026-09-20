@@ -79,7 +79,7 @@ Tudo nesta seção é **[F]**.
 | Peça | Onde | O que é relevante para roteamento |
 |---|---|---|
 | `LLMProvider` | `core/llm/base.py` | `Protocol` de um método: `async interpretar_comando(texto) -> ComandoInterpretado`. Um roteador cabe nessa assinatura sem mudá-la. |
-| `SYSTEM_PROMPT` + `ESQUEMA_COMANDO` | `core/llm/base.py` | Compartilhados por todos os provedores. 237 e 1.114 caracteres (JSON compacto), respectivamente — medidos em 2026-09-19, depois de a semântica das ações passar a ser derivada de `SEMANTICA_ACOES`. A `DICA_ESQUEMA`, que só deepseek e ollama recebem, soma outros 653. |
+| `SYSTEM_PROMPT` + `ESQUEMA_COMANDO` | `core/llm/base.py` | Compartilhados por todos os provedores. 237 e 1.455 caracteres (JSON compacto), respectivamente — medidos em 2026-09-20, depois de a `REGRA_DE_HONESTIDADE` entrar na `description` de `resposta_falada`. A `DICA_ESQUEMA`, que só deepseek e ollama recebem, soma outros 1.024. |
 | `PROVIDERS` | `core/llm/registry.py` | `claude`, `deepseek`, `openai_mini`, `ollama`, `deterministico`. Todo provedor recebe `Settings` no construtor. |
 | `montar_provider` | `core/llm/registry.py` | Monta o principal e o embrulha em `FallbackLLMProvider`. Roda **uma vez** — está atrás de `@lru_cache(maxsize=1)`. |
 | `FallbackLLMProvider` | `core/llm/fallback.py` | Só entra em ação em `LLMIndisponivelError`. Preserva o `uso.provider` de quem de fato respondeu. |
@@ -95,11 +95,13 @@ Dois fatos negativos que valem tanto quanto os positivos:
 
 - **[F] Não há prompt caching em lugar nenhum do servidor.** `cache_control` não
   aparece no código. E **[E]** o prefixo mínimo cacheável da Anthropic é da ordem
-  de 1024 tokens; o prefixo estável do Shogun (`SYSTEM_PROMPT` + schema = 1.351
-  caracteres, ≈ 350 tokens) fica bem abaixo disso. **Cache de prompt não é uma
+  de 1024 tokens; o prefixo estável do Shogun (`SYSTEM_PROMPT` + schema = 1.692
+  caracteres, ≈ 430 tokens) fica abaixo disso. **Cache de prompt não é uma
   alavanca disponível neste desenho** — não por esquecimento, por tamanho. O
-  número cresceu em 2026-09-19 (era 1.135) e a conclusão não se mexeu: a margem
-  para o piso é de quase 3×.
+  número subiu duas vezes em duas rodadas (1.135 → 1.351 → 1.692) e a conclusão
+  não se mexeu; o que encolheu foi a margem, de quase 3× para cerca de 2,4×.
+  Vale reconferir quando o prompt crescer de novo: a conclusão é sobre a ordem
+  de grandeza, e a ordem de grandeza tem menos folga do que tinha.
 - **[F] O custo por comando cresce com a sessão, não com a dificuldade.** O termo
   que domina o input é o bloco de histórico (até 20 mensagens reenviadas a cada
   comando), e ele é idêntico para "bom dia" e para uma pergunta difícil. Se o
@@ -152,11 +154,18 @@ regex se reaproveitam; a decisão, não.
 ### 3.3 Dois defeitos que hoje não custam nada e no papel de roteador custariam
 
 **[F] Defeito 1 — a varredura de palavra-chave roda sobre o histórico inteiro.**
-A rota chama `llm.interpretar_comando(montar_prompt(historico, texto))`, ou seja,
-o provedor recebe o bloco de histórico concatenado com o comando. O teste do
-determinístico é `any(chave in normalizado for chave in _CHAVES_PENDENCIAS)` —
-sobre a string inteira. Uma sessão em que o Marcus tenha dito "tarefa" vinte
-mensagens atrás faz **todo** comando seguinte cair em `consultar_pendencias`.
+A rota chama `llm.interpretar_comando(montar_prompt(historico, texto, contexto))`,
+ou seja, o provedor recebe o bloco de data e hora e o bloco de histórico
+concatenados com o comando. O teste do determinístico é
+`any(chave in normalizado for chave in _CHAVES_PENDENCIAS)` — sobre a string
+inteira. Uma sessão em que o Marcus tenha dito "tarefa" vinte mensagens atrás faz
+**todo** comando seguinte cair em `consultar_pendencias`.
+
+O terceiro argumento, `contexto`, entrou em 2026-09-19 e **piora este defeito em
+um ponto**: o bloco de data e hora vai em todo comando, então a varredura passa
+a ver também as palavras dele. Nenhuma das sete chaves de `_CHAVES_PENDENCIAS`
+casa com o bloco hoje — mas quem mexer na redação do bloco, ou nas chaves,
+precisa saber que as duas coisas agora se tocam.
 
 Hoje isso é praticamente inofensivo: o determinístico só roda como reserva
 final, num cenário em que a nuvem e o modelo local caíram juntos. Como roteador,
@@ -251,8 +260,8 @@ paramétrica. **Os preços são [F]/[E]; os volumes de token são [S] declarados
 contas são contas.**
 
 **[S]** Faixas escolhidas: input de 500 a 2.000 tokens por comando (o prefixo
-estável é pequeno — ~1.184 caracteres **[F]** — e o que varia é o bloco de até 20
-mensagens de histórico); output de 100 a 300 tokens. O limite inferior de output
+estável é pequeno — 1.692 caracteres **[F]**, medidos em 2026-09-20 — e o que
+varia é o bloco de até 20 mensagens de histórico); output de 100 a 300 tokens. O limite inferior de output
 vem do que está medido: `streaming-design.md` §2 registra **43–127 tokens de
 saída** naquela amostra. O limite superior de 300 existe porque **[E]** o Opus 5
 tem thinking adaptativo ligado por padrão e os tokens de raciocínio são cobrados

@@ -71,7 +71,8 @@ server/app/
 │   ├── persistencia.py      # injeção do RepositorioConversas no FastAPI
 │   └── llm/                 # base, registry, fallback, claude, openai_compat,
 │                            # ollama, deterministico, precos, aquecimento,
-│                            # historico (prompt com histórico)
+│                            # historico (prompt com histórico),
+│                            # contexto (data e hora reais no prompt)
 ├── db/                      # models, engine, repositorio, migracao (checagem)
 ├── domain/                  # domínio puro — sem HTTP, sem FastAPI
 │   ├── pendencias.py        # StatusAgente, Pendencia, PendenciasProvider (ABC)
@@ -105,10 +106,17 @@ Também em `base.py`, compartilhados por **todos** os provedores:
   bloco de ações da `DICA_ESQUEMA` são derivados dela, nunca escritos à mão. Os
   dois canais existem porque o schema não chega em todo provedor, não porque a
   semântica seja duas.
-- `DICA_ESQUEMA` — o schema em linguagem natural mais a semântica das ações,
-  **acrescentado** ao `SYSTEM_PROMPT`. Nunca o substitui. Vai para deepseek (que
-  não recebe schema nenhum) e para o ollama — que recebe o schema como
-  gramática, e gramática garante forma, não semântica.
+- `REGRA_DE_HONESTIDADE` — como escrever `resposta_falada`: dizer só o que está
+  no prompt e admitir a falta de acesso em vez de inventar. **Fonte única**, no
+  mesmo padrão de `SEMANTICA_ACOES` — a `description` de `resposta_falada` e a
+  `DICA_ESQUEMA` derivam dela. Existe porque `conversar` é o **único** ramo da
+  rota que fala o texto do modelo verbatim: `consultar_pendencias` e `abrir_app`
+  constroem a fala a partir de dado do servidor e descartam a `resposta_falada`.
+  É por `conversar`, e só por ali, que uma alucinação chega ao Marcus.
+- `DICA_ESQUEMA` — o schema em linguagem natural, mais a semântica das ações,
+  mais a regra de honestidade. **Acrescentado** ao `SYSTEM_PROMPT`; nunca o
+  substitui. Vai para deepseek (que não recebe schema nenhum) e para o ollama —
+  que recebe o schema como gramática, e gramática garante forma, não semântica.
 - `LLMIndisponivelError` — erro único para toda falha (rede, timeout, rate limit,
   credencial ausente, JSON malformado, resposta fora do schema). É o que a rota
   trata e o que dispara o fallback.
@@ -157,7 +165,8 @@ recebendo `Settings`) + uma entrada em `PROVIDERS`. Nada mais muda.
 Fluxo:
 
 1. texto vazio → **422**;
-2. abre/continua a sessão e grava a fala do usuário (histórico vai no prompt);
+2. abre/continua a sessão e grava a fala do usuário (data e hora reais e
+   histórico vão no prompt, nessa ordem, antes do comando);
 3. `llm.interpretar_comando(...)`; `LLMIndisponivelError` → **503**;
 4. despacho por `intencao.acao`, hoje um `if/elif` na própria rota:
 
@@ -622,6 +631,18 @@ Duas ordens deliberadas na rota, que valem lembrar antes de mexer nela:
 - o INSERT do usuário acontece **antes** de chamar o modelo: gravando antes, um
   comando que falha no LLM continua registrado — e esse passo pode falhar (503
   quando provedor e fallback caem juntos).
+
+Desde 2026-09-19 o prompt carrega também **data e hora reais**
+(`core/llm/contexto.py`), pelo terceiro parâmetro de `montar_prompt`. Três
+detalhes que não são óbvios ao ler a rota:
+
+- o instante **não** vai para o `SYSTEM_PROMPT`: ele muda a cada chamada, e o
+  system é o prefixo estável — a única parte cacheável do prompt;
+- o instante **não** entra no histórico persistido: a mensagem gravada continua
+  sendo o texto cru, senão toda conversa antiga carregaria horas velhas como se
+  fossem contexto;
+- é a hora **local do servidor**, hoje a máquina do Marcus, e o bloco não diz
+  qual fuso é esse — limitação conhecida, em `.ai/known-issues.md`.
 
 ### 4.5 Outras lacunas de estado
 
