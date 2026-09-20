@@ -35,9 +35,18 @@ ACOES: tuple[str, ...] = ("conversar", "consultar_pendencias", "abrir_app")
 # tautológico — é justamente daquele enum que o teste deriva o vocabulário
 # esperado aqui.
 SEMANTICA_ACOES: dict[str, str] = {
+    # Definida por COMPLEMENTO, e não por lista de tópicos. A redação anterior
+    # ("resposta livre e qualquer pergunta geral, inclusive horário, data,
+    # clima, agenda pessoal") fazia dois trabalhos na mesma oração: roteava a
+    # pergunta para cá E declarava que o Shogun cobre esses assuntos. O modelo
+    # obedecia as duas — roteava certo e inventava o compromisso. Os tópicos
+    # continuam nomeados porque é isso que move um 7B; o que saiu foi a promessa
+    # implícita, e a última oração é quem corta o fio entre uma coisa e a outra.
     "conversar": (
-        "resposta livre e qualquer pergunta geral, inclusive horário, data, "
-        "clima, agenda pessoal e bate-papo."
+        "destino padrão: tudo que não é status de agente de software nem abrir "
+        "aplicativo cai aqui — conversa, perguntas gerais, horário, data, "
+        "agenda do Marcus, clima. Cair aqui não quer dizer que o Shogun tenha o "
+        "dado."
     ),
     "consultar_pendencias": (
         "status dos AGENTES de software que o Shogun acompanha (executando, "
@@ -51,6 +60,29 @@ SEMANTICA_ACOES: dict[str, str] = {
 #: É a forma em que os dois canais de prompt consomem `SEMANTICA_ACOES`.
 _SEMANTICA_POR_ACAO: tuple[str, ...] = tuple(
     f"{acao} = {SEMANTICA_ACOES[acao]}" for acao in ACOES
+)
+
+# Como escrever `resposta_falada`. FONTE ÚNICA, no mesmo padrão de
+# `SEMANTICA_ACOES`: a `description` de `resposta_falada` no `ESQUEMA_COMANDO` e
+# a `DICA_ESQUEMA` derivam daqui, e é aqui que se edita.
+#
+# Existe porque `conversar` é o ÚNICO ramo da rota cuja fala não passa por dado
+# do servidor: `consultar_pendencias` constrói a resposta de `Pendencia` real e
+# `abrir_app` constrói do parâmetro já validado — os dois DESCARTAM a
+# `resposta_falada` do modelo. Em `conversar` ela é falada verbatim
+# (`api/comando.py`). É por ali, e só por ali, que uma alucinação chega ao
+# Marcus.
+#
+# A regra é geral de propósito, não sobre agenda: alcança clima, e-mail e o que
+# aparecer depois, sem rodada nova. E ela só é barata porque o prompt agora
+# carrega data e hora reais (`contexto.py`) — sem essa âncora, "diga só o que
+# estiver neste prompt" viraria mordaça e proibiria o Shogun de responder uma
+# hora que o servidor sabe.
+REGRA_DE_HONESTIDADE = (
+    "Diga só o que estiver neste prompt. Quando a resposta depende de dado que "
+    "não está aqui — a agenda do Marcus, o clima, e-mail, arquivos — diga que "
+    "não tem acesso a esse dado. Nunca invente hora, data, nome, número nem "
+    "compromisso."
 )
 
 # O schema enviado na requisição é FECHADO (`additionalProperties: false` em todo
@@ -89,7 +121,11 @@ ESQUEMA_COMANDO: dict[str, Any] = {
         },
         "resposta_falada": {
             "type": "string",
-            "description": "Texto que será falado ao Marcus, em português do Brasil.",
+            # A regra vem de `REGRA_DE_HONESTIDADE` — não a escreva aqui.
+            "description": (
+                "Texto que será falado ao Marcus, em português do Brasil. "
+                + REGRA_DE_HONESTIDADE
+            ),
         },
     },
     "required": ["acao", "parametros", "resposta_falada"],
@@ -120,6 +156,11 @@ DICA_ESQUEMA = (
     # `StatusAgente` — porque ali a grafia literal é o que importa.
     "\n\nQuando usar cada ação:\n"
     + "\n".join(f"- {frase}" for frase in _SEMANTICA_POR_ACAO)
+    # Derivado de `REGRA_DE_HONESTIDADE` — não escreva a regra aqui. Alcança
+    # deepseek e ollama, os dois que não recebem o schema como texto e que
+    # ficariam sem a regra se ela morasse só na `description`.
+    + "\n\nAo escrever resposta_falada: "
+    + REGRA_DE_HONESTIDADE
 )
 
 
